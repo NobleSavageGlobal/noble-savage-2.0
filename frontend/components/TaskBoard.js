@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const DEFAULT_FORM = {
-  ws: "ws_income",
+  ws: "",
   task: "",
   prio: "P2",
   status: "Backlog",
@@ -33,7 +33,10 @@ export default function TaskBoard({ token }) {
       cache: "no-store",
       headers: { ...authHeaders },
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      setLoading(false);
+      return;
+    }
     setTasks(await res.json());
     setLoading(false);
   }
@@ -79,7 +82,7 @@ export default function TaskBoard({ token }) {
 
   async function submitTask(e) {
     e.preventDefault();
-    if (!form.task.trim()) return;
+    if (!form.task.trim() || !form.ws) return;
 
     const res = await fetch(`${API_BASE}/api/tasks`, {
       method: "POST",
@@ -88,7 +91,7 @@ export default function TaskBoard({ token }) {
     });
 
     if (res.ok) {
-      setForm(DEFAULT_FORM);
+      setForm((v) => ({ ...v, task: "", prio: "P2", status: "Backlog" }));
     }
   }
 

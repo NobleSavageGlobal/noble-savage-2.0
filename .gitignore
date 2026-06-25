@@ -10,5 +10,7 @@ node_modules/
 frontend/.next/
 frontend/out/
 backend/noble_savage.db
+backend/noble_savage_e2e.db
+backend/noble_savage_e2e_debug.db
 backend/.env
 .env

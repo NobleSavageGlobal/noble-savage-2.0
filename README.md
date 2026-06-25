@@ -96,6 +96,16 @@ The frontend expects the backend at `http://localhost:8000` by default.
 - Task create/update events are broadcast over websocket for live UI updates.
 - This is the first shipping slice; next iterations can layer Supabase Auth/Realtimes, agent orchestration, and cadence jobs without reworking structure.
 
+## Verification
+
+Run an end-to-end backend flow test (health, auth, onboarding, websocket, tenant isolation):
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/e2e_system_flow.py
+```
+
 ## Legacy Assistant Package
 
 The original package remains available:

@@ -36,14 +36,20 @@ def _find_ws_for_chokepoint(chokepoint: str, workstreams: list[dict[str, Any]]) 
     return workstreams[0]["id"] if workstreams else "ws_operations"
 
 
-def _base_response(step: str, question: str, state: dict[str, Any], note: str | None = None) -> dict[str, Any]:
+def _base_response(
+    step: str,
+    question: str,
+    state: dict[str, Any],
+    note: str | None = None,
+    complete: bool | None = None,
+) -> dict[str, Any]:
     return {
         "step": step,
         "question": question,
         "note": note,
         "proposals": state.get("pending_proposals", []),
         "summary": state.get("summary", []),
-        "complete": state.get("complete", False),
+        "complete": state.get("complete", False) if complete is None else complete,
     }
 
 
@@ -229,6 +235,7 @@ def handle_turn(user_id: str, existing: dict[str, Any], answer: str | None) -> d
             "Onboarding complete. Your board is populated, chokepoint is pinned, and cadence is set.",
             saved["collected"],
             note="You can continue refining from the board and chat.",
+            complete=saved["complete"],
         )
 
     return _base_response(
