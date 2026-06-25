@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 const DEFAULT_FORM = {
   ws: "",
   task: "",
@@ -11,7 +9,7 @@ const DEFAULT_FORM = {
   status: "Backlog",
 };
 
-export default function TaskBoard({ token }) {
+export default function TaskBoard({ token, apiBase }) {
   const [tasks, setTasks] = useState([]);
   const [workstreams, setWorkstreams] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,7 +27,7 @@ export default function TaskBoard({ token }) {
 
   async function loadTasks() {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/api/tasks`, {
+    const res = await fetch(`${apiBase}/api/tasks`, {
       cache: "no-store",
       headers: { ...authHeaders },
     });
@@ -43,7 +41,7 @@ export default function TaskBoard({ token }) {
 
   async function loadWorkstreams() {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/api/workstreams`, {
+    const res = await fetch(`${apiBase}/api/workstreams`, {
       cache: "no-store",
       headers: { ...authHeaders },
     });
@@ -60,8 +58,10 @@ export default function TaskBoard({ token }) {
     loadWorkstreams();
     loadTasks();
 
-    const wsUrl = API_BASE.replace("http", "ws") + `/ws/board?token=${encodeURIComponent(token)}`;
-    const socket = new WebSocket(wsUrl);
+    const wsTarget = new URL("/ws/board", apiBase);
+    wsTarget.protocol = wsTarget.protocol === "https:" ? "wss:" : "ws:";
+    wsTarget.searchParams.set("token", token);
+    const socket = new WebSocket(wsTarget.toString());
     socket.onopen = () => socket.send("subscribe");
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data);
@@ -78,13 +78,13 @@ export default function TaskBoard({ token }) {
       });
     };
     return () => socket.close();
-  }, [token]);
+  }, [token, apiBase]);
 
   async function submitTask(e) {
     e.preventDefault();
     if (!form.task.trim() || !form.ws) return;
 
-    const res = await fetch(`${API_BASE}/api/tasks`, {
+    const res = await fetch(`${apiBase}/api/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(form),
@@ -96,7 +96,7 @@ export default function TaskBoard({ token }) {
   }
 
   async function updateStatus(taskId, status) {
-    await fetch(`${API_BASE}/api/tasks/${taskId}`, {
+    await fetch(`${apiBase}/api/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ status }),
@@ -121,7 +121,7 @@ export default function TaskBoard({ token }) {
         <section className="panel">
           <h2>Task Board</h2>
           <p className="notice">
-            API: {API_BASE} | Realtime updates flow through websocket events.
+            API: {apiBase} | Realtime updates flow through websocket events.
           </p>
 
           <form onSubmit={submitTask} className="controls" style={{ margin: "12px 0" }}>

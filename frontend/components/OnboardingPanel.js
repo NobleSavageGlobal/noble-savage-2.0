@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-export default function OnboardingPanel({ token }) {
+export default function OnboardingPanel({ token, apiBase }) {
   const [turn, setTurn] = useState(null);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13,7 +11,7 @@ export default function OnboardingPanel({ token }) {
   async function sendTurn(nextAnswer = null) {
     if (!token) return;
     setLoading(true);
-    const res = await fetch(`${API_BASE}/api/onboarding/turn`, {
+    const res = await fetch(`${apiBase}/api/onboarding/turn`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ answer: nextAnswer }),
@@ -29,7 +27,7 @@ export default function OnboardingPanel({ token }) {
   async function resetFlow() {
     if (!token) return;
     setLoading(true);
-    await fetch(`${API_BASE}/api/onboarding/reset`, {
+    await fetch(`${apiBase}/api/onboarding/reset`, {
       method: "POST",
       headers: { ...authHeaders },
     });

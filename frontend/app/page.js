@@ -6,9 +6,11 @@ import AssistantPanel from "../components/AssistantPanel";
 import OnboardingPanel from "../components/OnboardingPanel";
 import TaskBoard from "../components/TaskBoard";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const CONFIGURED_API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function Home() {
+  const [apiBase, setApiBase] = useState("http://localhost:8000");
+  const [configWarning, setConfigWarning] = useState("");
   const [token, setToken] = useState("");
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -19,6 +21,18 @@ export default function Home() {
   useEffect(() => {
     const existing = window.localStorage.getItem("ns_access_token") || "";
     setToken(existing);
+
+    if (CONFIGURED_API_BASE) {
+      setApiBase(CONFIGURED_API_BASE.replace(/\/$/, ""));
+      return;
+    }
+
+    const runningLocally = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    if (!runningLocally) {
+      setConfigWarning(
+        "NEXT_PUBLIC_API_URL is not configured. Set it to your Railway backend public URL so this link works outside local development."
+      );
+    }
   }, []);
 
   async function submitAuth(e) {
@@ -27,7 +41,7 @@ export default function Home() {
     const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
     const payload = mode === "register" ? { email, password, name } : { email, password };
 
-    const res = await fetch(`${API_BASE}${endpoint}`, {
+    const res = await fetch(`${apiBase}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -55,6 +69,7 @@ export default function Home() {
         <section className="panel" style={{ maxWidth: 560, margin: "24px auto" }}>
           <h1>Noble Savage OS</h1>
           <p className="notice">Sign in to access your private command center.</p>
+          {configWarning ? <p style={{ color: "#dc2626" }}>{configWarning}</p> : null}
           <form onSubmit={submitAuth} className="shell" style={{ marginTop: 12 }}>
             <div className="controls">
               <button type="button" onClick={() => setMode("login")}>
@@ -101,9 +116,14 @@ export default function Home() {
       <div className="controls" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
         <button onClick={logout}>Logout</button>
       </div>
-      <AssistantPanel token={token} />
-      <OnboardingPanel token={token} />
-      <TaskBoard token={token} />
+      {configWarning ? (
+        <section className="panel" style={{ marginBottom: 12 }}>
+          <p style={{ color: "#dc2626", margin: 0 }}>{configWarning}</p>
+        </section>
+      ) : null}
+      <AssistantPanel token={token} apiBase={apiBase} />
+      <OnboardingPanel token={token} apiBase={apiBase} />
+      <TaskBoard token={token} apiBase={apiBase} />
     </main>
   );
 }

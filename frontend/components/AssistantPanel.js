@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-export default function AssistantPanel({ token }) {
+export default function AssistantPanel({ token, apiBase }) {
   const [knowledge, setKnowledge] = useState([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -17,7 +15,7 @@ export default function AssistantPanel({ token }) {
 
   async function loadKnowledge() {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/api/knowledge`, {
+    const res = await fetch(`${apiBase}/api/knowledge`, {
       headers: { ...authHeaders },
       cache: "no-store",
     });
@@ -32,7 +30,7 @@ export default function AssistantPanel({ token }) {
   async function addEntry(e) {
     e.preventDefault();
     if (!title.trim() || !content.trim()) return;
-    const res = await fetch(`${API_BASE}/api/knowledge`, {
+    const res = await fetch(`${apiBase}/api/knowledge`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ title, content }),
@@ -47,7 +45,7 @@ export default function AssistantPanel({ token }) {
     e.preventDefault();
     if (!question.trim()) return;
     setLoading(true);
-    const res = await fetch(`${API_BASE}/api/assistant/query`, {
+    const res = await fetch(`${apiBase}/api/assistant/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify({ question }),

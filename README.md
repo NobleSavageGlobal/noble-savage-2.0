@@ -106,6 +106,42 @@ source .venv/bin/activate
 python scripts/e2e_system_flow.py
 ```
 
+## Railway Deployment Checklist
+
+Use two Railway services from this monorepo:
+
+1. Backend service root: `backend/`
+2. Frontend service root: `frontend/`
+
+Nixpacks config files are included:
+
+- `backend/nixpacks.toml`
+- `frontend/nixpacks.toml`
+
+Set backend environment variables:
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `TOKEN_TTL_MINUTES`
+- `CORS_ALLOW_ORIGINS`
+- `CORS_ALLOW_ORIGIN_REGEX` (optional for wildcard host patterns)
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL`
+- `OPENROUTER_EMBEDDING_MODEL`
+- `OPENROUTER_SITE_URL`
+- `OPENROUTER_SITE_NAME`
+
+Set frontend environment variables:
+
+- `NEXT_PUBLIC_API_URL` (must point to backend public URL)
+
+Post-deploy link checks:
+
+1. Open frontend public URL and confirm login page renders.
+2. Register or login and confirm board widgets load.
+3. Confirm backend health endpoint returns `{"message":"ok"}` at `/health`.
+4. Add a task and verify it appears immediately on the board.
+
 ## Legacy Assistant Package
 
 The original package remains available:

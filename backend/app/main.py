@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -80,9 +81,19 @@ manager = ConnectionManager()
 app = FastAPI(title="Noble Savage API", version="0.1.0")
 security = HTTPBearer()
 
+
+def _parse_origins() -> list[str]:
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+cors_allow_origins = _parse_origins()
+cors_allow_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or None
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_allow_origins,
+    allow_origin_regex=cors_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
