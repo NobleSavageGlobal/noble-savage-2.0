@@ -1,0 +1,171 @@
+:root {
+  --ink: #0f172a;
+  --soft-ink: #334155;
+  --paper: #f8fafc;
+  --panel: #ffffff;
+  --line: #dbe5ef;
+  --accent: #0f766e;
+  --accent-2: #f59e0b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  font-family: var(--font-body), sans-serif;
+  background:
+    radial-gradient(circle at 20% 0%, #d1fae5 0, transparent 40%),
+    radial-gradient(circle at 100% 20%, #fef3c7 0, transparent 35%),
+    var(--paper);
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading), serif;
+  margin: 0;
+}
+
+.shell {
+  display: grid;
+  gap: 16px;
+}
+
+.hero {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(130deg, #ecfeff, #fff7ed 70%);
+  padding: 18px;
+}
+
+.hero p {
+  margin: 8px 0 0;
+  color: var(--soft-ink);
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .grid {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 14px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.metric strong {
+  display: block;
+  font-size: 1.4rem;
+}
+
+.task-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.task-row:last-child {
+  margin-bottom: 0;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.badge {
+  border-radius: 999px;
+  font-size: 0.75rem;
+  border: 1px solid var(--line);
+  padding: 2px 10px;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button,
+select,
+input {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: #fff;
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.notice {
+  color: var(--soft-ink);
+  font-size: 0.9rem;
+}
+
+.onboarding-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.proposal-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.proposal-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+}
