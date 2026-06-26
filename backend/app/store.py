@@ -15,6 +15,8 @@ load_dotenv()
 
 SQLITE_PATH = Path(__file__).resolve().parent.parent / "noble_savage.db"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+pysqlite:///{SQLITE_PATH}")
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 DEFAULT_WORKSTREAMS = [
     {
@@ -622,7 +624,11 @@ def create_knowledge(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     now = datetime.utcnow()
     embedding = payload.get("embedding")
     if embedding is None:
-        embedding = embed_text(f"{payload['title']}\n{payload['content']}")
+        try:
+            embedding = embed_text(f"{payload['title']}\n{payload['content']}")
+        except Exception:
+            # Keep knowledge ingestion available even when embedding providers are down.
+            embedding = []
     with engine.begin() as conn:
         conn.execute(
             text(

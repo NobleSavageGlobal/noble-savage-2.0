@@ -29,7 +29,7 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
   }, [tasks]);
 
   async function loadTasks() {
-    if (!token) return;
+    if (!token || !apiBase) return;
     try {
       const res = await fetch(`${apiBase}/api/tasks`, {
         cache: "no-store",
@@ -53,7 +53,7 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
   }
 
   async function loadWorkstreams() {
-    if (!token) return;
+    if (!token || !apiBase) return;
     try {
       const res = await fetch(`${apiBase}/api/workstreams`, {
         cache: "no-store",
@@ -79,6 +79,12 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
 
   useEffect(() => {
     if (!token) return;
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      setConnectionStatus("config-missing");
+      setLoading(false);
+      return;
+    }
     loadWorkstreams();
     loadTasks();
 
@@ -134,6 +140,10 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
 
   async function submitTask(e) {
     e.preventDefault();
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
     if (!form.task.trim() || !form.ws) return;
     setSaving(true);
     setError("");
@@ -163,6 +173,10 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
   }
 
   async function updateStatus(taskId, status) {
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
     setError("");
     try {
       const res = await fetch(`${apiBase}/api/tasks/${taskId}`, {

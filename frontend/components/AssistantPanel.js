@@ -17,7 +17,7 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
   async function loadKnowledge() {
-    if (!token) return;
+    if (!token || !apiBase) return;
     setLoadingKnowledge(true);
     try {
       const res = await fetch(`${apiBase}/api/knowledge`, {
@@ -41,11 +41,19 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
   }
 
   useEffect(() => {
+    if (!apiBase) {
+      setKnowledge([]);
+      return;
+    }
     loadKnowledge();
-  }, [token]);
+  }, [token, apiBase]);
 
   async function addEntry(e) {
     e.preventDefault();
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
     if (!title.trim() || !content.trim()) return;
     setAddingKnowledge(true);
     setError("");
@@ -76,6 +84,10 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
 
   async function askAssistant(e) {
     e.preventDefault();
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
     if (!question.trim()) return;
     setLoading(true);
     setError("");

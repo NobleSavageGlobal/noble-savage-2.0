@@ -22,7 +22,7 @@ export default function Home() {
     const existing = window.localStorage.getItem("ns_access_token") || "";
     setToken(existing);
 
-    const resolvedApiBase = resolveApiBase();
+    const resolvedApiBase = resolveApiBase(window.location.hostname);
     setApiBase(resolvedApiBase);
     const runningLocally = ["localhost", "127.0.0.1"].includes(window.location.hostname);
     setConfigWarning(

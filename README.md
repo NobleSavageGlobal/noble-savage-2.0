@@ -126,6 +126,8 @@ python scripts/smoke_auth_flow.py
 
 ## Railway Deployment Checklist
 
+Detailed copy-paste variable matrix: `RAILWAY_ENV_MATRIX.md`.
+
 Deploy two Railway services from this monorepo:
 
 1. Backend service root: `backend/`
@@ -136,29 +138,35 @@ Nixpacks config files are included:
 - `backend/nixpacks.toml`
 - `frontend/nixpacks.toml`
 
-Set backend environment variables:
+Backend variables (required unless marked optional):
 
 - `DATABASE_URL`
-- `JWT_SECRET`
+- `JWT_SECRET` (32+ chars in production)
 - `TOKEN_TTL_MINUTES`
-- `FRONTEND_ORIGINS`
-- `CORS_ALLOW_ORIGIN_REGEX` (optional for wildcard host patterns)
+- `FRONTEND_ORIGINS` (must include your Railway frontend URL, comma-separated if multiple)
+- `CORS_ALLOW_ORIGIN_REGEX` (optional wildcard support)
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL`
 - `OPENROUTER_EMBEDDING_MODEL`
-- `OPENROUTER_SITE_URL`
+- `OPENROUTER_SITE_URL` (set to your Railway frontend URL)
 - `OPENROUTER_SITE_NAME`
 
-Set frontend environment variables:
+Frontend variables:
 
-- `NEXT_PUBLIC_API_URL` (must point to backend public URL)
+- `NEXT_PUBLIC_API_URL` (must be the Railway backend public URL)
 
-Post-deploy checks:
+Cross-service sync rule:
+
+- `NEXT_PUBLIC_API_URL` on frontend must match the backend public URL.
+- `FRONTEND_ORIGINS` on backend must include the frontend public URL.
+
+Post-deploy smoke checks:
 
 1. Open frontend public URL and confirm login page renders.
-2. Register or login and confirm board widgets load.
+2. Register or login and confirm onboarding, assistant, and board panels all load.
 3. Confirm backend health endpoint returns `{"message":"ok"}` at `/health`.
 4. Add a task and verify it appears immediately on the board.
+5. Change task status and verify it updates without page refresh.
 
 ## Legacy Assistant Package
 

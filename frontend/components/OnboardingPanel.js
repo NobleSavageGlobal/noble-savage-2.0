@@ -11,6 +11,10 @@ export default function OnboardingPanel({ token, apiBase, onAuthExpired }) {
 
   async function sendTurn(nextAnswer = null) {
     if (!token) return;
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -40,6 +44,10 @@ export default function OnboardingPanel({ token, apiBase, onAuthExpired }) {
 
   async function resetFlow() {
     if (!token) return;
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
     setLoading(true);
     setError("");
     try {

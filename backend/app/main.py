@@ -90,7 +90,17 @@ security = HTTPBearer()
 
 def _parse_origins() -> list[str]:
     raw = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
-    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    origins: list[str] = []
+    for origin in raw.split(","):
+        value = origin.strip().rstrip("/")
+        if not value:
+            continue
+        if value.startswith(("http://", "https://")):
+            origins.append(value)
+            continue
+        # Allow plain domains in env input and normalize to https for hosted deployments.
+        origins.append(f"https://{value}")
+    return sorted(set(origins))
 
 
 cors_allow_origins = _parse_origins()
@@ -174,7 +184,10 @@ async def get_knowledge(user: dict[str, Any] = Depends(current_user)) -> list[Kn
 
 @app.post("/api/knowledge", response_model=KnowledgeOut)
 async def add_knowledge(payload: KnowledgeIn, user: dict[str, Any] = Depends(current_user)) -> KnowledgeOut:
-    record = create_knowledge(user["id"], payload.model_dump(mode="json"))
+    try:
+        record = create_knowledge(user["id"], payload.model_dump(mode="json"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not save knowledge entry: {exc}") from exc
     return KnowledgeOut(**record)
 
 
@@ -182,7 +195,10 @@ async def add_knowledge(payload: KnowledgeIn, user: dict[str, Any] = Depends(cur
 async def reembed_knowledge(
     knowledge_id: str, user: dict[str, Any] = Depends(current_user)
 ) -> KnowledgeOut:
-    record = update_knowledge_embedding(user["id"], knowledge_id)
+    try:
+        record = update_knowledge_embedding(user["id"], knowledge_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Could not generate embedding: {exc}") from exc
     if not record:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
     return KnowledgeOut(**record)
@@ -196,7 +212,7 @@ async def assistant_query(
     try:
         answer = await query_openrouter(payload.question, citations)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=f"Assistant provider unavailable: {exc}") from exc
     return AssistantQueryOut(
         answer=answer,
         citations=[KnowledgeOut(**c) for c in citations],
