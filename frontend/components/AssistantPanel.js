@@ -77,6 +77,24 @@ const PROMPT_TEMPLATES = [
     text:
       "Reset priorities for execution focus.\nCurrent tasks: [paste]\nObjective this week: [goal]\nOutput format: stop/continue/start table and ranked top 5 with rationale.",
   },
+  {
+    id: "ingestion-qa",
+    label: "Ingestion QA",
+    text:
+      "Audit imported knowledge quality.\nScope: [uploaded files]\nOutput format: extraction errors, duplicate sections, missing metadata, and exact fixes to improve retrieval quality.",
+  },
+  {
+    id: "code-context-map",
+    label: "Code Context Map",
+    text:
+      "Map this code corpus into retrieval-ready context.\nCode set: [uploaded files]\nOutput format: architecture map, key modules, critical dependencies, and fastest debug entry points.",
+  },
+  {
+    id: "retrieval-optimizer",
+    label: "Retrieval Optimizer",
+    text:
+      "Optimize this knowledge base for answer quality.\nObjective: [what answers should improve]\nOutput format: chunking strategy, tag taxonomy, ranking rules, and top 5 immediate tuning actions.",
+  },
 ];
 
 function refineQuestionText(raw) {
@@ -98,6 +116,9 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
   const [knowledge, setKnowledge] = useState([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadingDocs, setUploadingDocs] = useState(false);
+  const [uploadResult, setUploadResult] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState([]);
@@ -235,6 +256,54 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
     }
   }
 
+  async function uploadDocuments(e) {
+    e.preventDefault();
+    if (!apiBase) {
+      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
+      return;
+    }
+    if (!uploadFiles.length) {
+      setError("Choose at least one file to upload.");
+      return;
+    }
+
+    setUploadingDocs(true);
+    setError("");
+    setUploadResult("");
+
+    try {
+      const form = new FormData();
+      for (const file of uploadFiles) {
+        form.append("files", file);
+      }
+
+      const res = await fetch(`${apiBase}/api/knowledge/upload`, {
+        method: "POST",
+        headers: { ...authHeaders },
+        body: form,
+      });
+
+      if (res.status === 401) {
+        onAuthExpired?.();
+        return;
+      }
+      if (!res.ok) {
+        setError(await readErrorMessage(res, "Could not import documents."));
+        return;
+      }
+
+      const body = await res.json().catch(() => []);
+      const importedCount = Array.isArray(body) ? body.length : 0;
+      setUploadResult(`Imported ${importedCount} knowledge entries from ${uploadFiles.length} file(s).`);
+      setUploadFiles([]);
+      loadKnowledge();
+    } catch {
+      setError("Could not import documents.");
+    } finally {
+      setUploadingDocs(false);
+    }
+  }
+
   async function askAssistant(e) {
     e.preventDefault();
     if (!apiBase) {
@@ -339,6 +408,21 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
         </button>
       </form>
 
+      <form onSubmit={uploadDocuments} className="shell" style={{ marginTop: 10 }}>
+        <div className="notice">Import files directly: PDF, DOCX, and source code files.</div>
+        <input
+          type="file"
+          multiple
+          onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
+          accept=".pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.rb,.php,.cs,.cpp,.c,.h,.hpp,.swift,.kt,.sql,.sh,.html,.css,.scss"
+          disabled={uploadingDocs}
+        />
+        <button className="primary" type="submit" disabled={uploadingDocs || !uploadFiles.length}>
+          {uploadingDocs ? "Importing..." : "Import documents and code"}
+        </button>
+        {uploadResult ? <div className="notice">{uploadResult}</div> : null}
+      </form>
+
       <form onSubmit={askAssistant} className="controls" style={{ marginTop: 12 }}>
         <input
           value={question}
@@ -379,7 +463,7 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
         ))}
       </div>
 
-      <p className="notice" style={{ marginTop: 6 }}>Prompt library: 10 high-leverage templates for decisions, execution, risk, outreach, and weekly control.</p>
+      <p className="notice" style={{ marginTop: 6 }}>Prompt library: high-leverage templates for decisions, execution, ingestion quality, retrieval optimization, and weekly control.</p>
 
       {error ? <p style={{ color: "#dc2626", marginTop: 10 }}>{error}</p> : null}
       {loadingKnowledge ? <p className="notice">Loading knowledge entries...</p> : null}

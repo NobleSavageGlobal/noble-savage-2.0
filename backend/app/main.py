@@ -3,7 +3,7 @@ import os
 import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -15,6 +15,7 @@ from .auth import (
     verify_password,
 )
 from .assistant_service import query_openrouter
+from .knowledge_ingest import build_knowledge_payloads, parse_document
 from .onboarding import handle_turn
 from .schemas import (
     AssistantFeedbackIn,
@@ -197,6 +198,36 @@ async def add_knowledge(payload: KnowledgeIn, user: dict[str, Any] = Depends(cur
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not save knowledge entry: {exc}") from exc
     return KnowledgeOut(**record)
+
+
+@app.post("/api/knowledge/upload", response_model=list[KnowledgeOut])
+async def upload_knowledge(
+    files: list[UploadFile] = File(...),
+    user: dict[str, Any] = Depends(current_user),
+) -> list[KnowledgeOut]:
+    if not files:
+        raise HTTPException(status_code=400, detail="No files received.")
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="Upload up to 20 files at a time.")
+
+    output: list[KnowledgeOut] = []
+    failures: list[str] = []
+
+    for upload in files:
+        try:
+            raw = await upload.read()
+            parsed = parse_document(upload.filename or "uploaded-file", upload.content_type, raw)
+            payloads = build_knowledge_payloads(parsed)
+            for payload in payloads:
+                record = create_knowledge(user["id"], payload)
+                output.append(KnowledgeOut(**record))
+        except Exception as exc:
+            failures.append(f"{upload.filename}: {exc}")
+
+    if not output and failures:
+        raise HTTPException(status_code=400, detail=failures[0])
+
+    return output
 
 
 @app.post("/api/knowledge/{knowledge_id}/reembed", response_model=KnowledgeOut)
