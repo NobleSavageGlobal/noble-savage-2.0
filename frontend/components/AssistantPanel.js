@@ -23,6 +23,60 @@ const PROMPT_TEMPLATES = [
     text:
       "Objective: [what must ship]\nCurrent state: [where this is blocked]\nDependencies: [what must happen first]\nOutput format: 72-hour execution sequence, owner per step, and success criteria.",
   },
+  {
+    id: "weekly-brief",
+    label: "Weekly Brief",
+    text:
+      "Generate my weekly operating brief.\nWorkstreams: [list]\nCurrent chokepoint: [task]\nHard deadlines: [list]\nOutput format: top 3 priorities, sequencing, and one non-negotiable ship action for today.",
+  },
+  {
+    id: "risk-radar",
+    label: "Risk Radar",
+    text:
+      "Run a risk scan on this plan.\nPlan: [paste]\nConstraints: [time, legal, cash]\nOutput format: red/yellow/green risks, leading indicators, and mitigation actions.",
+  },
+  {
+    id: "delegation-draft",
+    label: "Delegation Draft",
+    text:
+      "Draft a delegation brief.\nTask: [what to delegate]\nOwner: [person]\nDefinition of done: [outcome]\nOutput format: assignment message, checklist, and follow-up cadence.",
+  },
+  {
+    id: "meeting-prep",
+    label: "Meeting Prep",
+    text:
+      "Prepare me for a high-stakes meeting.\nMeeting goal: [goal]\nStakeholders: [names]\nKnown tensions: [list]\nOutput format: talking points, likely objections, and exact closing ask.",
+  },
+  {
+    id: "outreach-draft",
+    label: "Outreach Draft",
+    text:
+      "Write a concise outreach draft in my voice.\nAudience: [who]\nOffer: [what]\nProof: [results]\nOutput format: subject line + 120-word message + follow-up message.",
+  },
+  {
+    id: "pre-mortem",
+    label: "Pre-Mortem",
+    text:
+      "Run a pre-mortem on this initiative.\nInitiative: [name]\nAssumptions: [list]\nOutput format: top 5 failure modes, early warning signs, and prevention moves.",
+  },
+  {
+    id: "evidence-map",
+    label: "Evidence Map",
+    text:
+      "Build an evidence map from this source material.\nMaterial: [paste]\nClaim to test: [claim]\nOutput format: supported claims, unsupported claims, and gaps requiring verification.",
+  },
+  {
+    id: "cashflow-sprint",
+    label: "Cashflow Sprint",
+    text:
+      "Design a 7-day cashflow sprint.\nCurrent offers: [list]\nPipeline status: [state]\nConstraints: [time, capacity]\nOutput format: daily actions, outreach targets, and expected revenue range.",
+  },
+  {
+    id: "priority-reset",
+    label: "Priority Reset",
+    text:
+      "Reset priorities for execution focus.\nCurrent tasks: [paste]\nObjective this week: [goal]\nOutput format: stop/continue/start table and ranked top 5 with rationale.",
+  },
 ];
 
 function refineQuestionText(raw) {
@@ -133,6 +187,12 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
   }
 
   useEffect(() => {
+    const seededPrompt = window.localStorage.getItem("ns_assistant_seed") || "";
+    if (seededPrompt) {
+      setQuestion(seededPrompt);
+      window.localStorage.removeItem("ns_assistant_seed");
+    }
+
     if (!apiBase) {
       setKnowledge([]);
       return;
@@ -255,8 +315,9 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
 
   return (
     <section className="panel">
+      <div id="assistant-panel" style={{ position: "relative", top: -80 }} />
       <h2>Knowledge-Driven Assistant</h2>
-      <p className="notice">Save reference notes, then ask questions grounded in your knowledge base.</p>
+      <p className="notice">Capture context, ask one sharp question, and get execution-ready output grounded in your knowledge.</p>
 
       <form onSubmit={addEntry} className="shell" style={{ marginTop: 8 }}>
         <input
@@ -314,6 +375,8 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
           </button>
         ))}
       </div>
+
+      <p className="notice" style={{ marginTop: 6 }}>Prompt library: 10 high-leverage templates for decisions, execution, risk, outreach, and weekly control.</p>
 
       {error ? <p style={{ color: "#dc2626", marginTop: 10 }}>{error}</p> : null}
       {loadingKnowledge ? <p className="notice">Loading knowledge entries...</p> : null}

@@ -204,6 +204,7 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
 
   return (
     <div className="shell">
+      <div id="task-board" style={{ position: "relative", top: -80 }} />
       <section className="hero">
         <h1>Noble Savage Command Center</h1>
         <p>
