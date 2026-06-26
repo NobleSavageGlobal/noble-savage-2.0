@@ -4,12 +4,25 @@ import { useEffect, useState } from "react";
 
 import { readErrorMessage } from "../lib/apiError";
 
+const STEP_ORDER = [
+  "orient",
+  "big_rocks",
+  "confirm_workstreams",
+  "chokepoint",
+  "confirm_chokepoint",
+  "rhythm",
+  "done",
+];
+
 export default function OnboardingPanel({ token, apiBase, onAuthExpired }) {
   const [turn, setTurn] = useState(null);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+  const currentStep = turn?.step || "orient";
+  const stepIndex = Math.max(STEP_ORDER.indexOf(currentStep), 0);
+  const progressPercent = Math.round(((stepIndex + 1) / STEP_ORDER.length) * 100);
 
   function jumpToTaskBoard() {
     const node = document.getElementById("task-board");
@@ -104,6 +117,10 @@ export default function OnboardingPanel({ token, apiBase, onAuthExpired }) {
       </div>
 
       <p className="notice">One question at a time. Confirm proposals as we go so your board updates with every decision.</p>
+      <div className="notice" style={{ marginTop: 6 }}>Progress: {progressPercent}%</div>
+      <div className="step-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent}>
+        <div className="step-track-fill" style={{ width: `${progressPercent}%` }} />
+      </div>
       {error ? <p style={{ color: "#dc2626" }}>{error}</p> : null}
 
       {turn ? (

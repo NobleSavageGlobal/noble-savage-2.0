@@ -357,7 +357,9 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
         </button>
       </form>
 
-      <div className="controls" style={{ marginTop: 8, gap: 8, flexWrap: "wrap" }}>
+      {loading ? <p className="notice">Thinking<span className="loading-dots" aria-hidden="true" /></p> : null}
+
+      <div className="controls prompt-strip" style={{ marginTop: 8, gap: 8, flexWrap: "wrap" }}>
         {PROMPT_TEMPLATES.map((template) => (
           <button
             key={template.id}
@@ -367,6 +369,7 @@ export default function AssistantPanel({ token, apiBase, onAuthExpired }) {
               setSelectedTemplateId(template.id);
             }}
             disabled={loading}
+            className="chip"
             style={{
               borderColor: selectedTemplateId === template.id ? "var(--brand)" : undefined,
             }}
