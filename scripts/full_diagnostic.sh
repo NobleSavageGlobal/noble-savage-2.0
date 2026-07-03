@@ -98,6 +98,7 @@ else
 fi
 
 echo "\n[7/7] Git quick status"
+rm -f "${ROOT_DIR}/backend/noble_savage_e2e.db" "${ROOT_DIR}/backend/noble_savage_compendium_smoke.db"
 git status --short
 popd >/dev/null
 
