@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 import re
-
-from docx import Document
-from pypdf import PdfReader
+from typing import Any
 
 
 MAX_CHUNK_CHARS = 9000
@@ -119,7 +117,7 @@ def _ocr_image_bytes(image_bytes: bytes) -> str:
         return ""
 
 
-def _extract_pdf_with_ocr(reader: PdfReader) -> str:
+def _extract_pdf_with_ocr(reader: Any) -> str:
     extracted: list[str] = []
     for page in reader.pages:
         for image in getattr(page, "images", []):
@@ -142,6 +140,11 @@ def parse_document(name: str, content_type: str | None, data: bytes) -> ParsedDo
     ocr_used = False
 
     if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+        except Exception as exc:
+            raise ValueError("PDF support is not available on this server.") from exc
+
         reader = PdfReader(BytesIO(data))
         pages = []
         for page in reader.pages:
@@ -157,6 +160,11 @@ def parse_document(name: str, content_type: str | None, data: bytes) -> ParsedDo
                 warnings.append("PDF appears image-based and OCR extraction could not recover readable text.")
         tags = ["pdf", "imported"]
     elif suffix == ".docx":
+        try:
+            from docx import Document
+        except Exception as exc:
+            raise ValueError("DOCX support is not available on this server.") from exc
+
         document = Document(BytesIO(data))
         paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
         content = "\n".join(paragraphs)
