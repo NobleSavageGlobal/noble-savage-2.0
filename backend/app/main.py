@@ -1,34 +1,57 @@
 import asyncio
-import os
-import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .auth import (
-    create_access_token,
-    decode_access_token,
-    hash_password,
-    validate_auth_config,
-    verify_password,
-)
+from .auth import create_access_token, decode_access_token, hash_password, verify_password
 from .assistant_service import query_openrouter
-from .knowledge_ingest import build_knowledge_payloads, parse_document
+from .compendium_store import (
+    advance_study,
+    create_briefing_digest,
+    create_meal_context,
+    comp_query,
+    convene_council,
+    design_garden,
+    get_florida_garden,
+    get_garden_calendar,
+    get_plant,
+    get_plant_evidence,
+    get_plant_safety,
+    get_plant_scholars,
+    get_scholar,
+    get_scholar_students,
+    get_scholar_teachers,
+    get_scholar_works,
+    get_study_path,
+    get_text_cite,
+    get_text_references,
+    init_compendium_db,
+    list_plants,
+    list_recent_briefings,
+    list_recent_meals,
+    list_scholars,
+    list_texts,
+    patch_garden_plant,
+    recommend_study,
+    seed_compendium_defaults,
+)
 from .onboarding import handle_turn
 from .schemas import (
-    AssistantFeedbackIn,
     AssistantQueryIn,
     AssistantQueryOut,
-    AssistantTemplateMetricsOut,
-    AssistantWeeklySummaryOut,
+    CompBriefingIn,
+    CompGardenDesignIn,
+    CompGardenPlantPatchIn,
+    CompMealContextIn,
+    CompQueryIn,
+    CompStudyAdvanceIn,
     AuthLoginIn,
     AuthRegisterIn,
     AuthTokenOut,
     KnowledgeIn,
     KnowledgeOut,
-    KnowledgeUploadOut,
     MessageOut,
     OnboardingState,
     OnboardingTurnIn,
@@ -42,7 +65,6 @@ from .schemas import (
 )
 from .store import (
     create_knowledge,
-    create_assistant_log,
     create_user,
     create_signal,
     create_task,
@@ -51,9 +73,6 @@ from .store import (
     get_onboarding,
     init_db,
     list_tasks,
-    get_assistant_template_metrics,
-    get_assistant_weekly_summary,
-    update_assistant_feedback,
     list_knowledge,
     list_workstreams,
     patch_task,
@@ -97,29 +116,9 @@ manager = ConnectionManager()
 app = FastAPI(title="Noble Savage API", version="0.1.0")
 security = HTTPBearer()
 
-
-def _parse_origins() -> list[str]:
-    raw = os.getenv("FRONTEND_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
-    origins: list[str] = []
-    for origin in raw.split(","):
-        value = origin.strip().rstrip("/")
-        if not value:
-            continue
-        if value.startswith(("http://", "https://")):
-            origins.append(value)
-            continue
-        # Allow plain domains in env input and normalize to https for hosted deployments.
-        origins.append(f"https://{value}")
-    return sorted(set(origins))
-
-
-cors_allow_origins = _parse_origins()
-cors_allow_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or None
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_allow_origins,
-    allow_origin_regex=cors_allow_origin_regex,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -128,8 +127,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
-    validate_auth_config()
     init_db()
+    init_compendium_db()
+    seed_compendium_defaults()
 
 
 def current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
@@ -194,82 +194,15 @@ async def get_knowledge(user: dict[str, Any] = Depends(current_user)) -> list[Kn
 
 @app.post("/api/knowledge", response_model=KnowledgeOut)
 async def add_knowledge(payload: KnowledgeIn, user: dict[str, Any] = Depends(current_user)) -> KnowledgeOut:
-    try:
-        record = create_knowledge(user["id"], payload.model_dump(mode="json"))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Could not save knowledge entry: {exc}") from exc
+    record = create_knowledge(user["id"], payload.model_dump(mode="json"))
     return KnowledgeOut(**record)
-
-
-@app.post("/api/knowledge/upload", response_model=KnowledgeUploadOut)
-async def upload_knowledge(
-    files: list[UploadFile] = File(...),
-    user: dict[str, Any] = Depends(current_user),
-) -> KnowledgeUploadOut:
-    if not files:
-        raise HTTPException(status_code=400, detail="No files received.")
-    if len(files) > 20:
-        raise HTTPException(status_code=400, detail="Upload up to 20 files at a time.")
-
-    reports: list[dict[str, Any]] = []
-    total_entries_created = 0
-    failed_files = 0
-
-    for upload in files:
-        try:
-            raw = await upload.read()
-            parsed = parse_document(upload.filename or "uploaded-file", upload.content_type, raw)
-            payloads = build_knowledge_payloads(parsed)
-            for payload in payloads:
-                record = create_knowledge(user["id"], payload)
-                _ = KnowledgeOut(**record)
-                total_entries_created += 1
-
-            reports.append(
-                {
-                    "file_name": upload.filename or "uploaded-file",
-                    "status": "success",
-                    "entries_created": len(payloads),
-                    "chunks_created": len(payloads),
-                    "extracted_chars": len(parsed.content),
-                    "ocr_used": parsed.ocr_used,
-                    "warning": "; ".join(parsed.warnings)[:500] if parsed.warnings else None,
-                    "error": None,
-                }
-            )
-        except Exception as exc:
-            failed_files += 1
-            reports.append(
-                {
-                    "file_name": upload.filename or "uploaded-file",
-                    "status": "error",
-                    "entries_created": 0,
-                    "chunks_created": 0,
-                    "extracted_chars": 0,
-                    "ocr_used": False,
-                    "warning": None,
-                    "error": str(exc)[:500],
-                }
-            )
-
-    successful_files = len(files) - failed_files
-    return KnowledgeUploadOut(
-        files=reports,
-        total_files_received=len(files),
-        successful_files=successful_files,
-        failed_files=failed_files,
-        total_entries_created=total_entries_created,
-    )
 
 
 @app.post("/api/knowledge/{knowledge_id}/reembed", response_model=KnowledgeOut)
 async def reembed_knowledge(
     knowledge_id: str, user: dict[str, Any] = Depends(current_user)
 ) -> KnowledgeOut:
-    try:
-        record = update_knowledge_embedding(user["id"], knowledge_id)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Could not generate embedding: {exc}") from exc
+    record = update_knowledge_embedding(user["id"], knowledge_id)
     if not record:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
     return KnowledgeOut(**record)
@@ -279,77 +212,216 @@ async def reembed_knowledge(
 async def assistant_query(
     payload: AssistantQueryIn, user: dict[str, Any] = Depends(current_user)
 ) -> AssistantQueryOut:
-    started = time.perf_counter()
-    citations: list[dict[str, Any]] = []
-    query_id: str | None = None
+    citations = search_knowledge(user["id"], payload.question, limit=5)
     try:
-        citations = search_knowledge(user["id"], payload.question, limit=5)
         answer = await query_openrouter(payload.question, citations)
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        query_id = create_assistant_log(
-            user["id"],
-            {
-                "template_id": payload.template_id,
-                "raw_question": payload.raw_question,
-                "question": payload.question,
-                "citation_count": len(citations),
-                "answer_chars": len(answer),
-                "status": "success",
-                "latency_ms": latency_ms,
-            },
-        )
     except Exception as exc:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        try:
-            create_assistant_log(
-                user["id"],
-                {
-                    "template_id": payload.template_id,
-                    "raw_question": payload.raw_question,
-                    "question": payload.question,
-                    "citation_count": len(citations),
-                    "answer_chars": 0,
-                    "status": "error",
-                    "error": str(exc)[:1000],
-                    "latency_ms": latency_ms,
-                },
-            )
-        except Exception:
-            pass
-        raise HTTPException(status_code=503, detail=f"Assistant provider unavailable: {exc}") from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return AssistantQueryOut(
-        query_id=query_id,
         answer=answer,
         citations=[KnowledgeOut(**c) for c in citations],
     )
 
 
-@app.get("/api/assistant/metrics", response_model=list[AssistantTemplateMetricsOut])
-async def assistant_metrics(user: dict[str, Any] = Depends(current_user)) -> list[AssistantTemplateMetricsOut]:
-    rows = get_assistant_template_metrics(user["id"], limit=12)
-    return [AssistantTemplateMetricsOut(**row) for row in rows]
-
-
-@app.get("/api/assistant/metrics/weekly-summary", response_model=AssistantWeeklySummaryOut)
-async def assistant_weekly_summary(user: dict[str, Any] = Depends(current_user)) -> AssistantWeeklySummaryOut:
-    summary = get_assistant_weekly_summary(user["id"], window_days=7)
-    return AssistantWeeklySummaryOut(**summary)
-
-
-@app.post("/api/assistant/feedback", response_model=MessageOut)
-async def assistant_feedback(
-    payload: AssistantFeedbackIn,
+@app.get("/comp/scholars")
+async def comp_scholars(
+    field: str | None = Query(default=None),
+    tradition: str | None = Query(default=None),
+    era: str | None = Query(default=None),
     user: dict[str, Any] = Depends(current_user),
-) -> MessageOut:
-    updated = update_assistant_feedback(
-        user_id=user["id"],
-        log_id=payload.query_id,
-        score=payload.score,
-        note=payload.note,
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Assistant query not found")
-    return MessageOut(message="feedback recorded")
+) -> list[dict[str, Any]]:
+    _ = user
+    return list_scholars(field=field, tradition=tradition, era=era)
+
+
+@app.get("/comp/scholar/{scholar_id}")
+async def comp_scholar(scholar_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    _ = user
+    scholar = get_scholar(scholar_id)
+    if not scholar:
+        raise HTTPException(status_code=404, detail="Scholar not found")
+    return scholar
+
+
+@app.get("/comp/scholar/{scholar_id}/works")
+async def comp_scholar_works(
+    scholar_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_scholar_works(scholar_id)
+
+
+@app.get("/comp/scholar/{scholar_id}/students")
+async def comp_scholar_students(
+    scholar_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_scholar_students(scholar_id)
+
+
+@app.get("/comp/scholar/{scholar_id}/teachers")
+async def comp_scholar_teachers(
+    scholar_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_scholar_teachers(scholar_id)
+
+
+@app.get("/comp/council/convene")
+async def comp_council_convene(
+    moment: str = Query(default="morning_briefing"),
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    return convene_council(user["id"], moment)
+
+
+@app.get("/comp/plants")
+async def comp_plants(
+    search: str | None = Query(default=None), user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return list_plants(search)
+
+
+@app.get("/comp/plant/{plant_id}")
+async def comp_plant(plant_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    _ = user
+    plant = get_plant(plant_id)
+    if not plant:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    return plant
+
+
+@app.get("/comp/plant/{plant_id}/safety")
+async def comp_plant_safety(
+    plant_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_plant_safety(plant_id)
+
+
+@app.get("/comp/plant/{plant_id}/evidence")
+async def comp_plant_evidence(
+    plant_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_plant_evidence(plant_id)
+
+
+@app.get("/comp/plant/{plant_id}/scholars")
+async def comp_plant_scholars(
+    plant_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_plant_scholars(plant_id)
+
+
+@app.get("/comp/garden/florida")
+async def comp_garden_florida(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return get_florida_garden(user["id"])
+
+
+@app.post("/comp/garden/design")
+async def comp_garden_design(
+    payload: CompGardenDesignIn, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    return design_garden(user["id"], payload.model_dump(mode="json"))
+
+
+@app.get("/comp/garden/calendar")
+async def comp_garden_calendar(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return get_garden_calendar(user["id"])
+
+
+@app.patch("/comp/garden/plants/{garden_plant_id}")
+async def comp_patch_garden_plant(
+    garden_plant_id: str,
+    payload: CompGardenPlantPatchIn,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    patched = patch_garden_plant(user["id"], garden_plant_id, payload.model_dump(mode="json"))
+    if not patched:
+        raise HTTPException(status_code=404, detail="Garden plant not found")
+    return patched
+
+
+@app.get("/comp/texts")
+async def comp_texts(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
+    _ = user
+    return list_texts()
+
+
+@app.get("/comp/text/{text_id}/references")
+async def comp_text_references(
+    text_id: str, user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return get_text_references(text_id)
+
+
+@app.get("/comp/text/{text_id}/cite")
+async def comp_text_cite(
+    text_id: str, verse: str = Query(...), user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    _ = user
+    return get_text_cite(text_id, verse)
+
+
+@app.get("/comp/study/path")
+async def comp_study_path(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return get_study_path(user["id"])
+
+
+@app.post("/comp/study/advance")
+async def comp_study_advance(
+    payload: CompStudyAdvanceIn, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    return advance_study(user["id"], payload.model_dump(mode="json"))
+
+
+@app.get("/comp/study/recommend")
+async def comp_study_recommend(
+    level: str = Query(default="intermediate"), user: dict[str, Any] = Depends(current_user)
+) -> list[dict[str, Any]]:
+    _ = user
+    return recommend_study(level)
+
+
+@app.post("/comp/query")
+async def comp_query_route(
+    payload: CompQueryIn, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    return comp_query(user["id"], payload.query, search_knowledge)
+
+
+@app.post("/comp/briefing/digest")
+async def comp_briefing_digest(
+    payload: CompBriefingIn, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    return create_briefing_digest(user["id"], payload.moment, payload.focus)
+
+
+@app.get("/comp/briefing/recent")
+async def comp_briefing_recent(
+    limit: int = Query(default=5, ge=1, le=20),
+    user: dict[str, Any] = Depends(current_user),
+) -> list[dict[str, Any]]:
+    return list_recent_briefings(user["id"], limit)
+
+
+@app.post("/comp/meals/context")
+async def comp_meal_context(
+    payload: CompMealContextIn, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    return create_meal_context(user["id"], payload.model_dump(mode="json"))
+
+
+@app.get("/comp/meals/today")
+async def comp_meals_today(
+    limit: int = Query(default=5, ge=1, le=20),
+    user: dict[str, Any] = Depends(current_user),
+) -> list[dict[str, Any]]:
+    return list_recent_meals(user["id"], limit)
 
 
 @app.get("/api/tasks", response_model=list[TaskOut])

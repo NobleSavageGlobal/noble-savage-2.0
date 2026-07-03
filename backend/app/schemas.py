@@ -1,36 +1,34 @@
 from datetime import datetime, date
-import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 TaskPriority = Literal["P1", "P2", "P3"]
 TaskStatus = Literal["Backlog", "This Week", "In Progress", "Blocked", "Done"]
 SignalKind = Literal["accept", "edit", "dismiss", "correct", "gap"]
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class TaskCreate(BaseModel):
-    ws: str = Field(min_length=1, max_length=120)
-    task: str = Field(min_length=1, max_length=300)
+    ws: str
+    task: str = Field(min_length=1)
     prio: TaskPriority = "P2"
     status: TaskStatus = "Backlog"
-    owner: str | None = Field(default=None, max_length=120)
-    notes: str | None = Field(default=None, max_length=2000)
-    deleg: str | None = Field(default=None, max_length=300)
-    bot: str | None = Field(default=None, max_length=120)
+    owner: str | None = None
+    notes: str | None = None
+    deleg: str | None = None
+    bot: str | None = None
     due: date | None = None
 
 
 class TaskPatch(BaseModel):
-    task: str | None = Field(default=None, min_length=1, max_length=300)
+    task: str | None = None
     prio: TaskPriority | None = None
     status: TaskStatus | None = None
-    owner: str | None = Field(default=None, max_length=120)
-    notes: str | None = Field(default=None, max_length=2000)
-    deleg: str | None = Field(default=None, max_length=300)
-    bot: str | None = Field(default=None, max_length=120)
+    owner: str | None = None
+    notes: str | None = None
+    deleg: str | None = None
+    bot: str | None = None
     due: date | None = None
 
 
@@ -51,11 +49,11 @@ class TaskOut(BaseModel):
 
 class SignalCreate(BaseModel):
     kind: SignalKind
-    target: str | None = Field(default=None, max_length=120)
-    before: str | None = Field(default=None, max_length=4000)
-    after: str | None = Field(default=None, max_length=4000)
-    agent: str | None = Field(default=None, max_length=120)
-    notes: str | None = Field(default=None, max_length=1000)
+    target: str | None = None
+    before: str | None = None
+    after: str | None = None
+    agent: str | None = None
+    notes: str | None = None
 
 
 class OnboardingState(BaseModel):
@@ -65,7 +63,7 @@ class OnboardingState(BaseModel):
 
 
 class OnboardingTurnIn(BaseModel):
-    answer: str | None = Field(default=None, max_length=2000)
+    answer: str | None = None
 
 
 class OnboardingTurnOut(BaseModel):
@@ -79,29 +77,13 @@ class OnboardingTurnOut(BaseModel):
 
 class AuthRegisterIn(BaseModel):
     email: str
-    password: str = Field(min_length=8, max_length=256)
-    name: str | None = Field(default=None, max_length=120)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        email = value.strip().lower()
-        if not EMAIL_RE.match(email):
-            raise ValueError("Invalid email")
-        return email
+    password: str = Field(min_length=8)
+    name: str | None = None
 
 
 class AuthLoginIn(BaseModel):
     email: str
-    password: str = Field(min_length=1, max_length=256)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: str) -> str:
-        email = value.strip().lower()
-        if not EMAIL_RE.match(email):
-            raise ValueError("Invalid email")
-        return email
+    password: str
 
 
 class AuthTokenOut(BaseModel):
@@ -130,21 +112,10 @@ class MessageOut(BaseModel):
 
 
 class KnowledgeIn(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    content: str = Field(min_length=1, max_length=10000)
-    source: str | None = Field(default=None, max_length=300)
-    tags: list[str] = Field(default_factory=list, max_length=30)
-
-    @field_validator("tags")
-    @classmethod
-    def normalize_tags(cls, values: list[str]) -> list[str]:
-        cleaned: list[str] = []
-        for raw in values:
-            tag = raw.strip().lower()
-            if not tag:
-                continue
-            cleaned.append(tag[:40])
-        return cleaned
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+    source: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class KnowledgeOut(BaseModel):
@@ -156,67 +127,48 @@ class KnowledgeOut(BaseModel):
     created_at: datetime
 
 
-class KnowledgeUploadFileOut(BaseModel):
-    file_name: str
-    status: Literal["success", "error"]
-    entries_created: int = 0
-    chunks_created: int = 0
-    extracted_chars: int = 0
-    ocr_used: bool = False
-    warning: str | None = None
-    error: str | None = None
-
-
-class KnowledgeUploadOut(BaseModel):
-    files: list[KnowledgeUploadFileOut] = Field(default_factory=list)
-    total_files_received: int
-    successful_files: int
-    failed_files: int
-    total_entries_created: int
-
-
 class AssistantQueryIn(BaseModel):
-    question: str = Field(min_length=1, max_length=2000)
-    raw_question: str | None = Field(default=None, max_length=2000)
-    template_id: str | None = Field(default=None, max_length=120)
+    question: str = Field(min_length=1)
 
 
 class AssistantQueryOut(BaseModel):
-    query_id: str | None = None
     answer: str
     citations: list[KnowledgeOut] = Field(default_factory=list)
 
 
-class AssistantFeedbackIn(BaseModel):
-    query_id: str = Field(min_length=1, max_length=80)
-    score: Literal[-1, 1]
-    note: str | None = Field(default=None, max_length=300)
+class CompGardenDesignIn(BaseModel):
+    name: str | None = None
+    location: str = "Florida"
+    tradition_weights: dict[str, float] = Field(default_factory=dict)
+    square_feet: int | None = None
+    usda_zone: str | None = None
+    sun_exposure: str | None = None
+    goals: list[str] = Field(default_factory=list)
 
 
-class AssistantTemplateMetricsOut(BaseModel):
-    template_id: str
-    queries: int
-    avg_citations: float
-    avg_answer_chars: float
-    success_rate: float
-    feedback_count: int
-    avg_feedback_score: float
-    last_used: datetime
+class CompGardenPlantPatchIn(BaseModel):
+    action: str = "update"
+    quantity: int | None = None
+    position: str | None = None
+    notes: str | None = None
 
 
-class AssistantTemplateInsightOut(BaseModel):
-    template_id: str
-    queries: int
-    success_rate: float
-    avg_citations: float
-    feedback_count: int
-    avg_feedback_score: float
-    quality_score: float
+class CompStudyAdvanceIn(BaseModel):
+    scholar_id: str | None = None
+    text_id: str | None = None
+    level: str = "intermediate"
 
 
-class AssistantWeeklySummaryOut(BaseModel):
-    window_days: int
-    total_queries: int
-    top_template: AssistantTemplateInsightOut | None = None
-    bottom_template: AssistantTemplateInsightOut | None = None
-    summary: str
+class CompQueryIn(BaseModel):
+    query: str = Field(min_length=1)
+
+
+class CompBriefingIn(BaseModel):
+    moment: str = "morning_briefing"
+    focus: str | None = None
+
+
+class CompMealContextIn(BaseModel):
+    meal_name: str = Field(min_length=1)
+    ingredients: list[str] = Field(default_factory=list)
+    notes: str | None = None

@@ -43,6 +43,18 @@ def main() -> None:
             "source": "README.md",
             "tags": ["setup", "architecture", "api"],
         },
+        {
+            "title": "Personal Operating and Council System",
+            "content": read_text(repo_root / "docs" / "PERSONAL_OPERATING_AND_COUNCIL_SYSTEM.md")[:50000],
+            "source": "docs/PERSONAL_OPERATING_AND_COUNCIL_SYSTEM.md",
+            "tags": ["user-model", "daily-flow", "lunar-cycle", "council-routing", "health-regimen"],
+        },
+        {
+            "title": "Compendium Integration Upgrade",
+            "content": read_text(repo_root / "docs" / "COMPENDIUM_INTEGRATION_UPGRADE.md")[:50000],
+            "source": "docs/COMPENDIUM_INTEGRATION_UPGRADE.md",
+            "tags": ["compendium", "council", "integration", "api", "schema"],
+        },
     ]
 
     inserted = 0

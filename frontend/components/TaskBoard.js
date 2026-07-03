@@ -1,26 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { readErrorMessage } from "../lib/apiError";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const DEFAULT_FORM = {
-  ws: "",
+  ws: "ws_income",
   task: "",
   prio: "P2",
   status: "Backlog",
 };
 
-export default function TaskBoard({ token, apiBase, onAuthExpired }) {
+export default function TaskBoard({ token }) {
   const [tasks, setTasks] = useState([]);
   const [workstreams, setWorkstreams] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [connectionStatus, setConnectionStatus] = useState("connecting");
   const [form, setForm] = useState(DEFAULT_FORM);
-
-  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
   const counters = useMemo(() => {
     const done = tasks.filter((t) => t.status === "Done").length;
@@ -30,172 +25,78 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
     return { done, inProgress, thisWeek, openP1 };
   }, [tasks]);
 
-  async function loadTasks() {
-    if (!token || !apiBase) return;
-    try {
-      const res = await fetch(`${apiBase}/api/tasks`, {
-        cache: "no-store",
-        headers: { ...authHeaders },
-      });
-      if (res.status === 401) {
-        onAuthExpired?.();
-        return;
-      }
-      if (!res.ok) {
-        setError(await readErrorMessage(res, "Could not load tasks."));
-        setLoading(false);
-        return;
-      }
-      setTasks(await res.json());
-    } catch {
-      setError("Could not load tasks.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const loadTasks = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/api/tasks`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    setTasks(await res.json());
+    setLoading(false);
+  }, [token]);
 
-  async function loadWorkstreams() {
-    if (!token || !apiBase) return;
-    try {
-      const res = await fetch(`${apiBase}/api/workstreams`, {
-        cache: "no-store",
-        headers: { ...authHeaders },
-      });
-      if (res.status === 401) {
-        onAuthExpired?.();
-        return;
-      }
-      if (!res.ok) {
-        setError(await readErrorMessage(res, "Could not load workstreams."));
-        return;
-      }
-      const data = await res.json();
-      const normalized = Array.isArray(data) ? data : [];
-      setWorkstreams(normalized);
-      if (normalized[0]) {
-        setForm((v) => ({ ...v, ws: normalized[0].id }));
-      }
-    } catch {
-      setError("Could not load workstreams.");
+  const loadWorkstreams = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/api/workstreams`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    setWorkstreams(data);
+    if (data[0]) {
+      setForm((v) => ({ ...v, ws: data[0].id }));
     }
-  }
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
-    if (!apiBase) {
-      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
-      setConnectionStatus("config-missing");
-      setLoading(false);
-      return;
-    }
     loadWorkstreams();
     loadTasks();
 
-    const wsTarget = new URL("/ws/board", apiBase);
-    wsTarget.protocol = wsTarget.protocol === "https:" ? "wss:" : "ws:";
-    wsTarget.searchParams.set("token", token);
-    let socket;
-    let reconnectTimer;
-    let closedByClient = false;
+    const wsUrl = API_BASE.replace("http", "ws") + `/ws/board?token=${encodeURIComponent(token)}`;
+    const socket = new WebSocket(wsUrl);
+    socket.onopen = () => socket.send("subscribe");
+    socket.onmessage = (event) => {
+      const payload = JSON.parse(event.data);
+      if (!payload.task) return;
 
-    function connect() {
-      setConnectionStatus("connecting");
-      socket = new WebSocket(wsTarget.toString());
-      socket.onopen = () => {
-        setConnectionStatus("connected");
-        socket.send("subscribe");
-      };
-      socket.onmessage = (event) => {
-        const payload = JSON.parse(event.data);
-        if (!payload.task) return;
-
-        setTasks((current) => {
-          const found = current.findIndex((item) => item.id === payload.task.id);
-          if (found === -1) {
-            return [payload.task, ...current];
-          }
-          const next = [...current];
-          next[found] = payload.task;
-          return next;
-        });
-      };
-      socket.onerror = () => {
-        setConnectionStatus("error");
-      };
-      socket.onclose = () => {
-        if (closedByClient) return;
-        setConnectionStatus("disconnected");
-        reconnectTimer = window.setTimeout(connect, 3000);
-      };
-    }
-
-    connect();
-    return () => {
-      closedByClient = true;
-      if (reconnectTimer) {
-        window.clearTimeout(reconnectTimer);
-      }
-      if (socket) {
-        socket.close();
-      }
+      setTasks((current) => {
+        const found = current.findIndex((item) => item.id === payload.task.id);
+        if (found === -1) {
+          return [payload.task, ...current];
+        }
+        const next = [...current];
+        next[found] = payload.task;
+        return next;
+      });
     };
-  }, [token, apiBase]);
+    return () => socket.close();
+  }, [loadTasks, loadWorkstreams, token]);
 
   async function submitTask(e) {
     e.preventDefault();
-    if (!apiBase) {
-      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
-      return;
-    }
-    if (!form.task.trim() || !form.ws) return;
-    setSaving(true);
-    setError("");
+    if (!token || !form.task.trim()) return;
 
-    try {
-      const res = await fetch(`${apiBase}/api/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify(form),
-      });
-      if (res.status === 401) {
-        onAuthExpired?.();
-        return;
-      }
-      if (!res.ok) {
-        setError(await readErrorMessage(res, "Could not create task."));
-        return;
-      }
+    const res = await fetch(`${API_BASE}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(form),
+    });
 
-      setForm((v) => ({ ...v, task: "", prio: "P2", status: "Backlog" }));
-    } catch {
-      setError("Could not create task.");
-    } finally {
-      setSaving(false);
+    if (res.ok) {
+      setForm(DEFAULT_FORM);
     }
   }
 
   async function updateStatus(taskId, status) {
-    if (!apiBase) {
-      setError("Backend URL is missing. Set NEXT_PUBLIC_API_URL.");
-      return;
-    }
-    setError("");
-    try {
-      const res = await fetch(`${apiBase}/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ status }),
-      });
-      if (res.status === 401) {
-        onAuthExpired?.();
-        return;
-      }
-      if (!res.ok) {
-        setError(await readErrorMessage(res, "Could not update task status."));
-      }
-    } catch {
-      setError("Could not update task status.");
-    }
+    if (!token) return;
+    await fetch(`${API_BASE}/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ status }),
+    });
   }
 
   if (!token) {
@@ -204,7 +105,6 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
 
   return (
     <div className="shell">
-      <div id="task-board" style={{ position: "relative", top: -80 }} />
       <section className="hero">
         <h1>Noble Savage Command Center</h1>
         <p>
@@ -217,22 +117,19 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
         <section className="panel">
           <h2>Task Board</h2>
           <p className="notice">
-              API: {apiBase} | Sync: {connectionStatus}
+            API: {API_BASE} | Realtime updates flow through websocket events.
           </p>
-            {error ? <p style={{ color: "#dc2626", marginTop: 8 }}>{error}</p> : null}
 
           <form onSubmit={submitTask} className="controls" style={{ margin: "12px 0" }}>
             <input
               value={form.task}
               onChange={(e) => setForm((v) => ({ ...v, task: e.target.value }))}
-              placeholder="What needs to happen next?"
+              placeholder="One concrete task to ship"
               style={{ minWidth: 240, flex: 1 }}
-              disabled={saving}
             />
             <select
               value={form.ws}
               onChange={(e) => setForm((v) => ({ ...v, ws: e.target.value }))}
-              disabled={saving}
             >
               {workstreams.map((ws) => (
                 <option key={ws.id} value={ws.id}>
@@ -243,14 +140,13 @@ export default function TaskBoard({ token, apiBase, onAuthExpired }) {
             <select
               value={form.prio}
               onChange={(e) => setForm((v) => ({ ...v, prio: e.target.value }))}
-              disabled={saving}
             >
               <option value="P1">P1</option>
               <option value="P2">P2</option>
               <option value="P3">P3</option>
             </select>
-            <button className="primary" type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Add task"}
+            <button className="primary" type="submit">
+              Add task
             </button>
           </form>
 

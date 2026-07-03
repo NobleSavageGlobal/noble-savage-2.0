@@ -23,26 +23,26 @@ pushd "${ROOT_DIR}/frontend" >/dev/null
 npm run build
 popd >/dev/null
 
-if ! command -v railway >/dev/null 2>&1; then
-  echo "\n[4/7] Railway CLI not found. Skipping Railway checks."
-  echo "== Full Diagnostic: done (local checks only) =="
-  exit 0
+RAILWAY_AVAILABLE=0
+if command -v railway >/dev/null 2>&1; then
+	RAILWAY_AVAILABLE=1
 fi
 
-echo "\n[4/7] Railway service status"
-pushd "${ROOT_DIR}" >/dev/null
-railway service status --service noble-savage-backend
-railway service status --service noble-savage-frontend
+if [[ "${RAILWAY_AVAILABLE}" -eq 1 ]]; then
+	echo "\n[4/7] Railway service status"
+	pushd "${ROOT_DIR}" >/dev/null
+	railway service status --service noble-savage-backend
+	railway service status --service noble-savage-frontend
 
-echo "\n[5/7] Public health endpoints"
-curl -fsS https://noble-savage-backend-production.up.railway.app/health
-echo
-curl -fsSI https://noble-savage-frontend-production.up.railway.app | head -n 1
+	echo "\n[5/7] Public health endpoints"
+	curl -fsS https://noble-savage-backend-production.up.railway.app/health
+	echo
+	curl -fsSI https://noble-savage-frontend-production.up.railway.app | head -n 1
 
-echo "\n[6/7] Production upload diagnostic"
-pushd "${ROOT_DIR}/backend" >/dev/null
-source .venv/bin/activate
-python - <<'PY'
+	echo "\n[6/7] Production upload diagnostic"
+	pushd "${ROOT_DIR}/backend" >/dev/null
+	source .venv/bin/activate
+	python - <<'PY'
 import uuid
 from io import BytesIO
 
@@ -92,10 +92,17 @@ with httpx.Client(timeout=60.0) as client:
 
 print("prod_upload_diag_ok")
 PY
-popd >/dev/null
+	popd >/dev/null
+else
+	echo "\n[4/7] Railway CLI not found. Skipping hosted deployment checks (steps 4-6)."
+fi
 
 echo "\n[7/7] Git quick status"
 git status --short
 popd >/dev/null
 
-echo "\n== Full Diagnostic: all checks passed =="
+if [[ "${RAILWAY_AVAILABLE}" -eq 1 ]]; then
+	echo "\n== Full Diagnostic: all checks passed =="
+else
+	echo "\n== Full Diagnostic: local checks passed, hosted checks skipped =="
+fi
