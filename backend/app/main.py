@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -38,6 +38,7 @@ from .compendium_store import (
     seed_compendium_defaults,
 )
 from .onboarding import handle_turn
+from .knowledge_ingest import build_knowledge_payloads, parse_document
 from .schemas import (
     AssistantQueryIn,
     AssistantQueryOut,
@@ -196,6 +197,55 @@ async def get_knowledge(user: dict[str, Any] = Depends(current_user)) -> list[Kn
 async def add_knowledge(payload: KnowledgeIn, user: dict[str, Any] = Depends(current_user)) -> KnowledgeOut:
     record = create_knowledge(user["id"], payload.model_dump(mode="json"))
     return KnowledgeOut(**record)
+
+
+@app.post("/api/knowledge/upload")
+async def upload_knowledge(
+    files: list[UploadFile] = File(...), user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required")
+
+    successful_files = 0
+    failed_files = 0
+    total_entries_created = 0
+    uploaded: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+
+    for file in files:
+        filename = file.filename or "upload"
+        try:
+            data = await file.read()
+            parsed = parse_document(filename, file.content_type, data)
+            payloads = build_knowledge_payloads(parsed)
+
+            for payload in payloads:
+                create_knowledge(user["id"], payload)
+
+            successful_files += 1
+            total_entries_created += len(payloads)
+            uploaded.append(
+                {
+                    "filename": filename,
+                    "entries_created": len(payloads),
+                    "warnings": parsed.warnings,
+                    "ocr_used": parsed.ocr_used,
+                }
+            )
+        except ValueError as exc:
+            failed_files += 1
+            errors.append({"filename": filename, "error": str(exc)})
+        except Exception:
+            failed_files += 1
+            errors.append({"filename": filename, "error": "Unexpected upload error"})
+
+    return {
+        "successful_files": successful_files,
+        "failed_files": failed_files,
+        "total_entries_created": total_entries_created,
+        "uploaded": uploaded,
+        "errors": errors,
+    }
 
 
 @app.post("/api/knowledge/{knowledge_id}/reembed", response_model=KnowledgeOut)

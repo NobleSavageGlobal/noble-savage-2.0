@@ -91,23 +91,7 @@ This prints:
 
 ## Implemented API Surface
 
-- `GET /health`
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `GET /api/workstreams`
-- `GET /api/knowledge`
-- `POST /api/knowledge`
-- `POST /api/assistant/query`
-- `GET /api/tasks?filter=...`
-- `POST /api/tasks`
-- `PATCH /api/tasks/:id`
-- `POST /api/signals`
-- `GET /api/onboarding`
-- `POST /api/onboarding`
-- `POST /api/onboarding/turn`
-- `POST /api/onboarding/reset`
-- `WS /ws/board`
+- `POST /api/knowledge/upload`
 
 Compendium module (token required):
 
