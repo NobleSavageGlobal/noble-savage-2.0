@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { readErrorMessage } from "../lib/apiError";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
+const WS_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const DEFAULT_FORM = {
   ws: "ws_income",
@@ -16,6 +18,7 @@ export default function TaskBoard({ token }) {
   const [workstreams, setWorkstreams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(DEFAULT_FORM);
+  const [error, setError] = useState("");
 
   const counters = useMemo(() => {
     const done = tasks.filter((t) => t.status === "Done").length;
@@ -27,26 +30,41 @@ export default function TaskBoard({ token }) {
 
   const loadTasks = useCallback(async () => {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/api/tasks`, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return;
-    setTasks(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setError(await readErrorMessage(res, "Unable to load tasks."));
+        return;
+      }
+      setTasks(await res.json());
+    } catch {
+      setError("Unable to load tasks due to network error.");
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
 
   const loadWorkstreams = useCallback(async () => {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/api/workstreams`, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    setWorkstreams(data);
-    if (data[0]) {
-      setForm((v) => ({ ...v, ws: data[0].id }));
+    try {
+      const res = await fetch(`${API_BASE}/api/workstreams`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setError(await readErrorMessage(res, "Unable to load workstreams."));
+        return;
+      }
+      const data = await res.json();
+      setWorkstreams(data);
+      if (data[0]) {
+        setForm((v) => ({ ...v, ws: data[0].id }));
+      }
+    } catch {
+      setError("Unable to load workstreams due to network error.");
     }
   }, [token]);
 
@@ -55,11 +73,16 @@ export default function TaskBoard({ token }) {
     loadWorkstreams();
     loadTasks();
 
-    const wsUrl = API_BASE.replace("http", "ws") + `/ws/board?token=${encodeURIComponent(token)}`;
+    const wsUrl = WS_BASE.replace("http", "ws") + `/ws/board?token=${encodeURIComponent(token)}`;
     const socket = new WebSocket(wsUrl);
     socket.onopen = () => socket.send("subscribe");
     socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
+      let payload;
+      try {
+        payload = JSON.parse(event.data);
+      } catch {
+        return;
+      }
       if (!payload.task) return;
 
       setTasks((current) => {
@@ -87,16 +110,22 @@ export default function TaskBoard({ token }) {
 
     if (res.ok) {
       setForm(DEFAULT_FORM);
+      setError("");
+    } else {
+      setError(await readErrorMessage(res, "Unable to create task."));
     }
   }
 
   async function updateStatus(taskId, status) {
     if (!token) return;
-    await fetch(`${API_BASE}/api/tasks/${taskId}`, {
+    const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ status }),
     });
+    if (!res.ok) {
+      setError(await readErrorMessage(res, "Unable to update task status."));
+    }
   }
 
   if (!token) {
@@ -119,6 +148,7 @@ export default function TaskBoard({ token }) {
           <p className="notice">
             API: {API_BASE} | Realtime updates flow through websocket events.
           </p>
+          {error ? <p className="status-error">{error}</p> : null}
 
           <form onSubmit={submitTask} className="controls" style={{ margin: "12px 0" }}>
             <input
@@ -151,6 +181,7 @@ export default function TaskBoard({ token }) {
           </form>
 
           {loading ? <p>Loading tasks...</p> : null}
+          {!loading && !tasks.length ? <p className="notice">No tasks yet. Add your first concrete shipping task above.</p> : null}
           {tasks.map((task) => (
             <article key={task.id} className="task-row">
               <strong>{task.task}</strong>

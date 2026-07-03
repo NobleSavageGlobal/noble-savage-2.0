@@ -44,6 +44,7 @@ if [[ "${RAILWAY_AVAILABLE}" -eq 1 ]]; then
 	source .venv/bin/activate
 	python - <<'PY'
 import uuid
+import secrets
 from io import BytesIO
 
 import httpx
@@ -52,7 +53,7 @@ from docx import Document
 base = "https://noble-savage-backend-production.up.railway.app"
 run_id = uuid.uuid4().hex[:8]
 email = f"prod.diag.script.{run_id}@noblesavage.local"
-password = "prod-diag-pass-123"
+password = f"prod-diag-{secrets.token_urlsafe(12)}"
 
 with httpx.Client(timeout=60.0) as client:
 	reg = client.post(

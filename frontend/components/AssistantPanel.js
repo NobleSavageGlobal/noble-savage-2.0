@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { readErrorMessage } from "../lib/apiError";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 export default function AssistantPanel({ token }) {
   const [knowledge, setKnowledge] = useState([]);
@@ -12,15 +13,22 @@ export default function AssistantPanel({ token }) {
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const loadKnowledge = useCallback(async () => {
     if (!token) return;
-    const res = await fetch(`${API_BASE}/api/knowledge`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return;
-    setKnowledge(await res.json());
+    try {
+      const res = await fetch(`${API_BASE}/api/knowledge`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        return;
+      }
+      setKnowledge(await res.json());
+    } catch {
+      // Keep panel usable even when list refresh fails.
+    }
   }, [token]);
 
   useEffect(() => {
@@ -30,35 +38,51 @@ export default function AssistantPanel({ token }) {
   async function addEntry(e) {
     e.preventDefault();
     if (!token || !title.trim() || !content.trim()) return;
-    const res = await fetch(`${API_BASE}/api/knowledge`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title, content }),
-    });
-    if (!res.ok) return;
-    setTitle("");
-    setContent("");
-    loadKnowledge();
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/knowledge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title, content }),
+      });
+      if (!res.ok) {
+        setError(await readErrorMessage(res, "Unable to save knowledge."));
+        return;
+      }
+      setTitle("");
+      setContent("");
+      loadKnowledge();
+    } catch {
+      setError("Network error while saving knowledge.");
+    }
   }
 
   async function askAssistant(e) {
     e.preventDefault();
     if (!token || !question.trim()) return;
     setLoading(true);
-    const res = await fetch(`${API_BASE}/api/assistant/query`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ question }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setAnswer(body.answer || "");
-      setCitations(body.citations || []);
-    } else {
-      setAnswer(body.detail || "Assistant request failed");
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/assistant/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setAnswer(body.answer || "");
+        setCitations(body.citations || []);
+      } else {
+        setAnswer(body.detail || "Assistant request failed");
+        setCitations([]);
+      }
+    } catch {
+      setAnswer("Assistant request failed due to network error.");
       setCitations([]);
+      setError("Unable to connect to assistant service.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   if (!token) return null;
@@ -67,6 +91,7 @@ export default function AssistantPanel({ token }) {
     <section className="panel">
       <h2>Chief-of-Staff Assistant</h2>
       <p className="notice">Solve problems with grounded recommendations, proactive risk calls, and concrete next actions.</p>
+      {error ? <p className="status-error">{error}</p> : null}
 
       <form onSubmit={addEntry} className="shell" style={{ marginTop: 8 }}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Knowledge title" />

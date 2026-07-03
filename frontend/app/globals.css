@@ -128,7 +128,8 @@ h3 {
 
 button,
 select,
-input {
+input,
+textarea {
   border: 1px solid var(--line);
   border-radius: 9px;
   padding: 8px 10px;
@@ -148,6 +149,11 @@ button.primary {
 
 .notice {
   color: var(--soft-ink);
+  font-size: 0.9rem;
+}
+
+.status-error {
+  color: #b91c1c;
   font-size: 0.9rem;
 }
 

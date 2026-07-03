@@ -1,11 +1,13 @@
 import asyncio
+import logging
+import os
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .auth import create_access_token, decode_access_token, hash_password, verify_password
+from .auth import JWT_SECRET_FROM_ENV, create_access_token, decode_access_token, hash_password, verify_password
 from .assistant_service import query_openrouter
 from .compendium_store import (
     advance_study,
@@ -116,10 +118,25 @@ class ConnectionManager:
 manager = ConnectionManager()
 app = FastAPI(title="Noble Savage API", version="0.1.0")
 security = HTTPBearer()
+logger = logging.getLogger(__name__)
+
+
+def _allowed_origins() -> list[str]:
+    configured = os.getenv("ALLOWED_ORIGINS", "")
+    parsed = [entry.strip() for entry in configured.split(",") if entry.strip()]
+    defaults = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://noble-savage-frontend-production.up.railway.app",
+    ]
+    for origin in defaults:
+        if origin not in parsed:
+            parsed.append(origin)
+    return parsed
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -128,6 +145,10 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
+    production_like = bool(os.getenv("RAILWAY_ENVIRONMENT")) or os.getenv("ENV") == "production"
+    if production_like and not JWT_SECRET_FROM_ENV:
+        raise RuntimeError("JWT_SECRET must be explicitly configured in production environments.")
+
     init_db()
     init_compendium_db()
     seed_compendium_defaults()
@@ -237,6 +258,7 @@ async def upload_knowledge(
             errors.append({"filename": filename, "error": str(exc)})
         except Exception:
             failed_files += 1
+            logger.exception("Unexpected error while processing uploaded file: %s", filename)
             errors.append({"filename": filename, "error": "Unexpected upload error"})
 
     return {

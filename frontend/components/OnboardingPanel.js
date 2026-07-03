@@ -1,39 +1,59 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { readErrorMessage } from "../lib/apiError";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 export default function OnboardingPanel({ token }) {
   const [turn, setTurn] = useState(null);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const sendTurn = useCallback(async (nextAnswer = null) => {
     if (!token) return;
     setLoading(true);
-    const res = await fetch(`${API_BASE}/api/onboarding/turn`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ answer: nextAnswer }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setTurn(data);
-      setAnswer("");
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/onboarding/turn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ answer: nextAnswer }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTurn(data);
+        setAnswer("");
+      } else {
+        setError(await readErrorMessage(res, "Unable to advance onboarding."));
+      }
+    } catch {
+      setError("Unable to connect to onboarding service.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [token]);
 
   const resetFlow = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    await fetch(`${API_BASE}/api/onboarding/reset`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setLoading(false);
-    sendTurn(null);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/onboarding/reset`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setError(await readErrorMessage(res, "Unable to reset onboarding."));
+        return;
+      }
+      await sendTurn(null);
+    } catch {
+      setError("Unable to reset onboarding right now.");
+    } finally {
+      setLoading(false);
+    }
   }, [sendTurn, token]);
 
   useEffect(() => {
@@ -56,6 +76,7 @@ export default function OnboardingPanel({ token }) {
       </div>
 
       <p className="notice">One question at a time. Confirm proposals before write.</p>
+      {error ? <p className="status-error">{error}</p> : null}
 
       {turn ? (
         <>
@@ -105,7 +126,7 @@ export default function OnboardingPanel({ token }) {
         <button onClick={() => sendTurn("yes")} disabled={loading}>
           Confirm
         </button>
-        <button onClick={() => sendTurn("revise")}>Revise</button>
+          <button onClick={() => sendTurn("revise")} disabled={loading}>Revise</button>
       </div>
     </section>
   );

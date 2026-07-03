@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import AssistantPanel from "../components/AssistantPanel";
 import OnboardingPanel from "../components/OnboardingPanel";
 import TaskBoard from "../components/TaskBoard";
+import { readErrorMessage } from "../lib/apiError";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 export default function Home() {
   const [token, setToken] = useState("");
@@ -15,6 +16,7 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     const existing = window.localStorage.getItem("ns_access_token") || "";
@@ -24,24 +26,31 @@ export default function Home() {
   async function submitAuth(e) {
     e.preventDefault();
     setError("");
+    setAuthLoading(true);
     const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
     const payload = mode === "register" ? { email, password, name } : { email, password };
 
-    const res = await fetch(`${API_BASE}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.detail || "Authentication failed");
-      return;
-    }
+    try {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const message = await readErrorMessage(res, "Authentication failed");
+        setError(message);
+        return;
+      }
 
-    const data = await res.json();
-    window.localStorage.setItem("ns_access_token", data.access_token);
-    setToken(data.access_token);
-    setPassword("");
+      const data = await res.json();
+      window.localStorage.setItem("ns_access_token", data.access_token);
+      setToken(data.access_token);
+      setPassword("");
+    } catch {
+      setError("Unable to reach authentication service. Check network and try again.");
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   function logout() {
@@ -86,8 +95,8 @@ export default function Home() {
               minLength={8}
               required
             />
-            {error ? <p style={{ color: "#dc2626", margin: 0 }}>{error}</p> : null}
-            <button className="primary" type="submit">
+            {error ? <p className="status-error" style={{ margin: 0 }}>{error}</p> : null}
+            <button className="primary" type="submit" disabled={authLoading}>
               {mode === "register" ? "Create account" : "Login"}
             </button>
           </form>

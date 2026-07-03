@@ -5,7 +5,9 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-change-me")
+
+JWT_SECRET = os.getenv("JWT_SECRET") or secrets.token_urlsafe(48)
+JWT_SECRET_FROM_ENV = bool(os.getenv("JWT_SECRET"))
 JWT_ALG = "HS256"
 TOKEN_TTL_MINUTES = int(os.getenv("TOKEN_TTL_MINUTES", "720"))
 PWD_ITERATIONS = 390000

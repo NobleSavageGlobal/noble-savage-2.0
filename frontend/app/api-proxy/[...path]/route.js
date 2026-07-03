@@ -24,13 +24,21 @@ async function proxy(request, params) {
     outboundHeaders.delete("content-length");
   }
 
-  const targetResponse = await fetch(targetUrl, {
-    method: request.method,
-    headers: outboundHeaders,
-    body: bodyAllowed ? outboundBody : undefined,
-    redirect: "manual",
-    cache: "no-store",
-  });
+  let targetResponse;
+  try {
+    targetResponse = await fetch(targetUrl, {
+      method: request.method,
+      headers: outboundHeaders,
+      body: bodyAllowed ? outboundBody : undefined,
+      redirect: "manual",
+      cache: "no-store",
+    });
+  } catch {
+    return Response.json(
+      { detail: "Upstream API is unavailable." },
+      { status: 502 }
+    );
+  }
 
   return new Response(targetResponse.body, {
     status: targetResponse.status,
