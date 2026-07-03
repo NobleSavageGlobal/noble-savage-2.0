@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "rm -rf .next",
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "sh -c 'next start -p ${PORT:-3000}'",
