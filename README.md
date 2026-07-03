@@ -67,6 +67,10 @@ python scripts/bootstrap_knowledge.py
 ```bash
 cd frontend
 npm install
+## One-Command Release
+
+- `./scripts/release_one_shot.sh`
+- Runs full diagnostics, verifies main sync, deploys backend and frontend to Railway, then checks live endpoints.
 npm run dev
 ```
 
