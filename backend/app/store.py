@@ -16,6 +16,16 @@ load_dotenv()
 SQLITE_PATH = Path(__file__).resolve().parent.parent / "noble_savage.db"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite+pysqlite:///{SQLITE_PATH}")
 
+
+def _normalize_database_url(database_url: str) -> str:
+    # Railway commonly provides postgres:// or postgresql:// without a driver.
+    # Force psycopg3 so runtime matches installed dependency set.
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
+
 DEFAULT_WORKSTREAMS = [
     {
         "id": "ws_income",
@@ -82,8 +92,9 @@ def _scope_ws_id(user_id: str, ws_id: str) -> str:
 
 
 def _make_engine() -> Engine:
-    connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-    return create_engine(DATABASE_URL, future=True, pool_pre_ping=True, connect_args=connect_args)
+    database_url = _normalize_database_url(DATABASE_URL)
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    return create_engine(database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
 
 
 engine = _make_engine()
