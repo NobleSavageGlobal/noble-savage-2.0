@@ -4,21 +4,22 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { readErrorMessage } from "../lib/apiError";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
-const WS_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WS_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 const DEFAULT_FORM = {
-  ws: "ws_income",
+  ws: "",
   task: "",
   prio: "P2",
   status: "Backlog",
 };
 
-export default function TaskBoard({ token }) {
+export default function TaskBoard({ token, onAuthError }) {
   const [tasks, setTasks] = useState([]);
   const [workstreams, setWorkstreams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(DEFAULT_FORM);
   const [error, setError] = useState("");
+  const [realtimeMode, setRealtimeMode] = useState("connecting");
 
   const counters = useMemo(() => {
     const done = tasks.filter((t) => t.status === "Done").length;
@@ -28,6 +29,14 @@ export default function TaskBoard({ token }) {
     return { done, inProgress, thisWeek, openP1 };
   }, [tasks]);
 
+  const handleAuthError = useCallback((res) => {
+    if (res.status === 401 && typeof onAuthError === "function") {
+      onAuthError();
+      return true;
+    }
+    return false;
+  }, [onAuthError]);
+
   const loadTasks = useCallback(async () => {
     if (!token) return;
     try {
@@ -35,6 +44,7 @@ export default function TaskBoard({ token }) {
         cache: "no-store",
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (handleAuthError(res)) return;
       if (!res.ok) {
         setError(await readErrorMessage(res, "Unable to load tasks."));
         return;
@@ -45,7 +55,7 @@ export default function TaskBoard({ token }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [handleAuthError, token]);
 
   const loadWorkstreams = useCallback(async () => {
     if (!token) return;
@@ -54,6 +64,7 @@ export default function TaskBoard({ token }) {
         cache: "no-store",
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (handleAuthError(res)) return;
       if (!res.ok) {
         setError(await readErrorMessage(res, "Unable to load workstreams."));
         return;
@@ -61,46 +72,75 @@ export default function TaskBoard({ token }) {
       const data = await res.json();
       setWorkstreams(data);
       if (data[0]) {
-        setForm((v) => ({ ...v, ws: data[0].id }));
+        setForm((v) => ({ ...v, ws: v.ws || data[0].id }));
       }
     } catch {
       setError("Unable to load workstreams due to network error.");
     }
-  }, [token]);
+  }, [handleAuthError, token]);
 
   useEffect(() => {
     if (!token) return;
     loadWorkstreams();
     loadTasks();
 
-    const wsUrl = WS_BASE.replace("http", "ws") + `/ws/board?token=${encodeURIComponent(token)}`;
-    const socket = new WebSocket(wsUrl);
-    socket.onopen = () => socket.send("subscribe");
-    socket.onmessage = (event) => {
-      let payload;
-      try {
-        payload = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      if (!payload.task) return;
+    let socket;
+    let polling;
 
-      setTasks((current) => {
-        const found = current.findIndex((item) => item.id === payload.task.id);
-        if (found === -1) {
-          return [payload.task, ...current];
+    if (WS_BASE) {
+      const wsUrl = WS_BASE.replace(/^http/, "ws") + `/ws/board?token=${encodeURIComponent(token)}`;
+      socket = new WebSocket(wsUrl);
+      socket.onopen = () => {
+        setRealtimeMode("live");
+        socket.send("subscribe");
+      };
+      socket.onerror = () => {
+        setRealtimeMode("polling");
+      };
+      socket.onclose = () => {
+        setRealtimeMode("polling");
+      };
+      socket.onmessage = (event) => {
+        let payload;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          return;
         }
-        const next = [...current];
-        next[found] = payload.task;
-        return next;
-      });
+
+        if (payload.type === "task.deleted" && payload.task_id) {
+          setTasks((current) => current.filter((item) => item.id !== payload.task_id));
+          return;
+        }
+
+        if (!payload.task) return;
+        setTasks((current) => {
+          const found = current.findIndex((item) => item.id === payload.task.id);
+          if (found === -1) {
+            return [payload.task, ...current];
+          }
+          const next = [...current];
+          next[found] = payload.task;
+          return next;
+        });
+      };
+    } else {
+      setRealtimeMode("polling");
+    }
+
+    polling = window.setInterval(() => {
+      loadTasks();
+    }, 15000);
+
+    return () => {
+      if (socket) socket.close();
+      if (polling) window.clearInterval(polling);
     };
-    return () => socket.close();
   }, [loadTasks, loadWorkstreams, token]);
 
   async function submitTask(e) {
     e.preventDefault();
-    if (!token || !form.task.trim()) return;
+    if (!token || !form.task.trim() || !form.ws) return;
 
     const res = await fetch(`${API_BASE}/api/tasks`, {
       method: "POST",
@@ -109,8 +149,10 @@ export default function TaskBoard({ token }) {
     });
 
     if (res.ok) {
-      setForm(DEFAULT_FORM);
+      setForm((prev) => ({ ...DEFAULT_FORM, ws: prev.ws || workstreams[0]?.id || "", task: "" }));
       setError("");
+    } else if (handleAuthError(res)) {
+      return;
     } else {
       setError(await readErrorMessage(res, "Unable to create task."));
     }
@@ -123,9 +165,24 @@ export default function TaskBoard({ token }) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ status }),
     });
+    if (handleAuthError(res)) return;
     if (!res.ok) {
       setError(await readErrorMessage(res, "Unable to update task status."));
     }
+  }
+
+  async function deleteTask(taskId) {
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (handleAuthError(res)) return;
+    if (!res.ok) {
+      setError(await readErrorMessage(res, "Unable to delete task."));
+      return;
+    }
+    setTasks((current) => current.filter((item) => item.id !== taskId));
   }
 
   if (!token) {
@@ -137,8 +194,8 @@ export default function TaskBoard({ token }) {
       <section className="hero">
         <h1>Noble Savage Command Center</h1>
         <p>
-          A living personal chief-of-staff. Add tasks, move status, and keep a
-          shared operating picture in motion.
+          AI-guided execution board. Capture what matters, move blockers fast,
+          and keep your operating picture live.
         </p>
       </section>
 
@@ -146,7 +203,7 @@ export default function TaskBoard({ token }) {
         <section className="panel">
           <h2>Task Board</h2>
           <p className="notice">
-            API: {API_BASE} | Realtime updates flow through websocket events.
+            Status: {realtimeMode === "live" ? "Live websocket sync" : "Polling every 15s"} | API: {API_BASE}
           </p>
           {error ? <p className="status-error">{error}</p> : null}
 
@@ -160,6 +217,7 @@ export default function TaskBoard({ token }) {
             <select
               value={form.ws}
               onChange={(e) => setForm((v) => ({ ...v, ws: e.target.value }))}
+              required
             >
               {workstreams.map((ws) => (
                 <option key={ws.id} value={ws.id}>
@@ -201,6 +259,9 @@ export default function TaskBoard({ token }) {
                   <option>Blocked</option>
                   <option>Done</option>
                 </select>
+                <button type="button" onClick={() => deleteTask(task.id)}>
+                  Delete
+                </button>
               </div>
             </article>
           ))}

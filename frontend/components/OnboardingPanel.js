@@ -5,11 +5,19 @@ import { readErrorMessage } from "../lib/apiError";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
-export default function OnboardingPanel({ token }) {
+export default function OnboardingPanel({ token, onAuthError }) {
   const [turn, setTurn] = useState(null);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const handleAuthError = useCallback((res) => {
+    if (res.status === 401 && typeof onAuthError === "function") {
+      onAuthError();
+      return true;
+    }
+    return false;
+  }, [onAuthError]);
 
   const sendTurn = useCallback(async (nextAnswer = null) => {
     if (!token) return;
@@ -21,6 +29,7 @@ export default function OnboardingPanel({ token }) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ answer: nextAnswer }),
       });
+      if (handleAuthError(res)) return;
       if (res.ok) {
         const data = await res.json();
         setTurn(data);
@@ -33,7 +42,7 @@ export default function OnboardingPanel({ token }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [handleAuthError, token]);
 
   const resetFlow = useCallback(async () => {
     if (!token) return;
@@ -44,6 +53,7 @@ export default function OnboardingPanel({ token }) {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (handleAuthError(res)) return;
       if (!res.ok) {
         setError(await readErrorMessage(res, "Unable to reset onboarding."));
         return;
@@ -54,7 +64,7 @@ export default function OnboardingPanel({ token }) {
     } finally {
       setLoading(false);
     }
-  }, [sendTurn, token]);
+  }, [handleAuthError, sendTurn, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -75,7 +85,7 @@ export default function OnboardingPanel({ token }) {
         </button>
       </div>
 
-      <p className="notice">One question at a time. Confirm proposals before write.</p>
+      <p className="notice">One sharp question at a time. Confirm or revise each proposal before it lands.</p>
       {error ? <p className="status-error">{error}</p> : null}
 
       {turn ? (
@@ -107,7 +117,7 @@ export default function OnboardingPanel({ token }) {
           ) : null}
         </>
       ) : (
-        <p className="notice">Starting onboarding...</p>
+        <p className="notice">Loading onboarding thread...</p>
       )}
 
       <form onSubmit={onSubmit} className="controls" style={{ marginTop: 10 }}>
@@ -118,7 +128,7 @@ export default function OnboardingPanel({ token }) {
           style={{ flex: 1, minWidth: 220 }}
         />
         <button className="primary" type="submit" disabled={loading}>
-          Send
+          Submit
         </button>
       </form>
 

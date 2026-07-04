@@ -4,9 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import { readErrorMessage } from "../lib/apiError";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
+const QUICK_PROMPTS = [
+  "Give me today's single highest-leverage action and what it unblocks.",
+  "Audit my current tasks and call out the one blueprint trap.",
+  "Draft a hard-first execution plan for today with 3 concrete moves.",
+  "What is the key risk in my current board and how do I reduce it now?",
+];
 
-export default function AssistantPanel({ token }) {
+export default function AssistantPanel({ token, onAuthError }) {
   const [knowledge, setKnowledge] = useState([]);
+  const [workstreams, setWorkstreams] = useState([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [question, setQuestion] = useState("");
@@ -14,6 +21,15 @@ export default function AssistantPanel({ token }) {
   const [citations, setCitations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [actionNote, setActionNote] = useState("");
+
+  const handleAuthError = useCallback((res) => {
+    if (res.status === 401 && typeof onAuthError === "function") {
+      onAuthError();
+      return true;
+    }
+    return false;
+  }, [onAuthError]);
 
   const loadKnowledge = useCallback(async () => {
     if (!token) return;
@@ -22,6 +38,7 @@ export default function AssistantPanel({ token }) {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
+      if (handleAuthError(res)) return;
       if (!res.ok) {
         return;
       }
@@ -29,11 +46,27 @@ export default function AssistantPanel({ token }) {
     } catch {
       // Keep panel usable even when list refresh fails.
     }
-  }, [token]);
+  }, [handleAuthError, token]);
+
+  const loadWorkstreams = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/workstreams`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (handleAuthError(res)) return;
+      if (!res.ok) return;
+      setWorkstreams(await res.json());
+    } catch {
+      // Non-blocking for assistant usage.
+    }
+  }, [handleAuthError, token]);
 
   useEffect(() => {
     loadKnowledge();
-  }, [loadKnowledge]);
+    loadWorkstreams();
+  }, [loadKnowledge, loadWorkstreams]);
 
   async function addEntry(e) {
     e.preventDefault();
@@ -45,6 +78,7 @@ export default function AssistantPanel({ token }) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ title, content }),
       });
+      if (handleAuthError(res)) return;
       if (!res.ok) {
         setError(await readErrorMessage(res, "Unable to save knowledge."));
         return;
@@ -52,6 +86,7 @@ export default function AssistantPanel({ token }) {
       setTitle("");
       setContent("");
       loadKnowledge();
+      setActionNote("Knowledge saved. Future answers can cite it.");
     } catch {
       setError("Network error while saving knowledge.");
     }
@@ -62,16 +97,21 @@ export default function AssistantPanel({ token }) {
     if (!token || !question.trim()) return;
     setLoading(true);
     setError("");
+    setActionNote("");
     try {
       const res = await fetch(`${API_BASE}/api/assistant/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ question }),
       });
+      if (handleAuthError(res)) return;
       const body = await res.json().catch(() => ({}));
       if (res.ok) {
         setAnswer(body.answer || "");
         setCitations(body.citations || []);
+        if ((body.answer || "").includes("OPENROUTER_API_KEY")) {
+          setError("AI provider is not configured on backend. Set OPENROUTER_API_KEY in Railway backend variables.");
+        }
       } else {
         setAnswer(body.detail || "Assistant request failed");
         setCitations([]);
@@ -85,13 +125,65 @@ export default function AssistantPanel({ token }) {
     }
   }
 
+  async function saveDecision(status = "IN MOTION") {
+    if (!token || !question.trim() || !answer.trim()) return;
+    const week = new Date().toISOString().slice(0, 10);
+    const res = await fetch(`${API_BASE}/api/decisions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        prompt: question,
+        recommendation: { answer, citations },
+        status,
+        week_of: week,
+      }),
+    });
+    if (handleAuthError(res)) return;
+    if (!res.ok) {
+      setError(await readErrorMessage(res, "Unable to save decision."));
+      return;
+    }
+    setActionNote("Decision saved to ledger.");
+  }
+
+  async function createTaskFromAnswer() {
+    if (!token || !answer.trim()) return;
+    const ws = workstreams[0]?.id;
+    if (!ws) {
+      setError("No workstream available yet. Complete onboarding first.");
+      return;
+    }
+
+    const task = answer.split("\n").find((line) => line.trim().length > 8)?.slice(0, 280) || question;
+    const res = await fetch(`${API_BASE}/api/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ws, task, prio: "P1", status: "This Week" }),
+    });
+    if (handleAuthError(res)) return;
+    if (!res.ok) {
+      setError(await readErrorMessage(res, "Unable to create task from AI response."));
+      return;
+    }
+    setActionNote("AI recommendation converted to a P1 task.");
+  }
+
   if (!token) return null;
 
   return (
     <section className="panel">
-      <h2>Chief-of-Staff Assistant</h2>
-      <p className="notice">Solve problems with grounded recommendations, proactive risk calls, and concrete next actions.</p>
+      <h2>AI Command Deck</h2>
+      <p className="notice">Use one command and let the assistant drive the next action, ledger update, and task capture.</p>
       {error ? <p className="status-error">{error}</p> : null}
+      {actionNote ? <p className="notice">{actionNote}</p> : null}
+
+      <div className="controls" style={{ marginTop: 8 }}>
+        {QUICK_PROMPTS.map((prompt) => (
+          <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>
+            {prompt.slice(0, 48)}...
+          </button>
+        ))}
+      </div>
 
       <form onSubmit={addEntry} className="shell" style={{ marginTop: 8 }}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Knowledge title" />
@@ -117,8 +209,13 @@ export default function AssistantPanel({ token }) {
 
       {answer ? (
         <article className="task-row" style={{ marginTop: 10 }}>
-          <strong>Solution brief</strong>
+          <strong>AI executive brief</strong>
           <div>{answer}</div>
+          <div className="controls">
+            <button type="button" onClick={() => saveDecision("IN MOTION")}>Save to ledger</button>
+            <button type="button" onClick={createTaskFromAnswer}>Create P1 task</button>
+            <button type="button" onClick={() => saveDecision("DONE")}>Mark as done</button>
+          </div>
         </article>
       ) : null}
 
@@ -132,7 +229,7 @@ export default function AssistantPanel({ token }) {
       ) : null}
 
       <div className="notice" style={{ marginTop: 10 }}>
-        Stored knowledge entries: {knowledge.length}
+        Knowledge entries: {knowledge.length} | Workstreams loaded: {workstreams.length}
       </div>
     </section>
   );

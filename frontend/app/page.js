@@ -17,11 +17,47 @@ export default function Home() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [sessionChecking, setSessionChecking] = useState(true);
+  const [sessionMessage, setSessionMessage] = useState("");
 
   useEffect(() => {
     const existing = window.localStorage.getItem("ns_access_token") || "";
     setToken(existing);
+    setSessionChecking(false);
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    let cancelled = false;
+    async function verifySession() {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        if (res.status === 401) {
+          logout("Your session expired. Please sign in again.");
+          return;
+        }
+        if (!res.ok) {
+          setSessionMessage("Authenticated, but profile check is temporarily unavailable.");
+          return;
+        }
+        setSessionMessage("");
+      } catch {
+        if (!cancelled) {
+          setSessionMessage("Unable to verify session health right now.");
+        }
+      }
+    }
+
+    verifySession();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   async function submitAuth(e) {
     e.preventDefault();
@@ -46,6 +82,7 @@ export default function Home() {
       window.localStorage.setItem("ns_access_token", data.access_token);
       setToken(data.access_token);
       setPassword("");
+      setSessionMessage("");
     } catch {
       setError("Unable to reach authentication service. Check network and try again.");
     } finally {
@@ -53,9 +90,22 @@ export default function Home() {
     }
   }
 
-  function logout() {
+  function logout(reason = "") {
     window.localStorage.removeItem("ns_access_token");
     setToken("");
+    setSessionMessage(reason);
+    setError("");
+  }
+
+  if (sessionChecking) {
+    return (
+      <main>
+        <section className="panel" style={{ maxWidth: 560, margin: "24px auto" }}>
+          <h1>Noble Savage OS</h1>
+          <p className="notice">Restoring secure session...</p>
+        </section>
+      </main>
+    );
   }
 
   if (!token) {
@@ -63,13 +113,13 @@ export default function Home() {
       <main>
         <section className="panel" style={{ maxWidth: 560, margin: "24px auto" }}>
           <h1>Noble Savage OS</h1>
-          <p className="notice">Sign in to access your private command center.</p>
+          <p className="notice">Sign in to activate your AI-operated command center.</p>
           <form onSubmit={submitAuth} className="shell" style={{ marginTop: 12 }}>
             <div className="controls">
-              <button type="button" onClick={() => setMode("login")}>
+              <button type="button" className={mode === "login" ? "primary" : ""} onClick={() => setMode("login")}>
                 Login
               </button>
-              <button type="button" onClick={() => setMode("register")}>
+              <button type="button" className={mode === "register" ? "primary" : ""} onClick={() => setMode("register")}>
                 Register
               </button>
             </div>
@@ -92,12 +142,18 @@ export default function Home() {
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               placeholder="Password"
-              minLength={8}
+              minLength={12}
               required
             />
+            {mode === "register" ? (
+              <p className="notice" style={{ margin: 0 }}>
+                Use 12+ characters with upper, lower, number, and symbol.
+              </p>
+            ) : null}
+            {sessionMessage ? <p className="status-error" style={{ margin: 0 }}>{sessionMessage}</p> : null}
             {error ? <p className="status-error" style={{ margin: 0 }}>{error}</p> : null}
             <button className="primary" type="submit" disabled={authLoading}>
-              {mode === "register" ? "Create account" : "Login"}
+              {mode === "register" ? "Create account" : "Sign in"}
             </button>
           </form>
         </section>
@@ -108,11 +164,12 @@ export default function Home() {
   return (
     <main>
       <div className="controls" style={{ justifyContent: "flex-end", marginBottom: 8 }}>
-        <button onClick={logout}>Logout</button>
+        <button onClick={() => logout()}>Logout</button>
       </div>
-      <AssistantPanel token={token} />
-      <OnboardingPanel token={token} />
-      <TaskBoard token={token} />
+      {sessionMessage ? <p className="notice">{sessionMessage}</p> : null}
+      <AssistantPanel token={token} onAuthError={() => logout("Your session expired. Please sign in again.")} />
+      <TaskBoard token={token} onAuthError={() => logout("Your session expired. Please sign in again.")} />
+      <OnboardingPanel token={token} onAuthError={() => logout("Your session expired. Please sign in again.")} />
     </main>
   );
 }
