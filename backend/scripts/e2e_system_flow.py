@@ -48,7 +48,7 @@ def main() -> None:
     run_id = uuid.uuid4().hex[:8]
     email_1 = f"e2e.primary.{run_id}@noblesavage.local"
     email_2 = f"e2e.secondary.{run_id}@noblesavage.local"
-    password = "e2e-pass-123"
+    password = "E2E-Pass-123!"
 
     with TestClient(app) as client:
         health = client.get("/health")

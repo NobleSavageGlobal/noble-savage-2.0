@@ -76,6 +76,8 @@ Output style contract:
 - Then give immediate action steps.
 - If decisions are involved, include confidence (0-100), second-order consequence, and one critical risk.
 - If information is incomplete, name exactly what is missing and ask one sharp follow-up.
+- Prefer concrete, operator-style language over generic coaching.
+- When the user asks what to do next, identify the single highest-leverage action first and keep it short.
 """.strip()
 
 

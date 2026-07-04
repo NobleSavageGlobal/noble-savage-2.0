@@ -5,9 +5,9 @@ import { readErrorMessage } from "../lib/apiError";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 const QUICK_PROMPTS = [
-  "Give me today's single highest-leverage action and what it unblocks.",
-  "Audit my current tasks and call out the one blueprint trap.",
-  "Draft a hard-first execution plan for today with 3 concrete moves.",
+  "What is today's single highest-leverage move and what does it unblock?",
+  "Audit my board and call out the biggest blueprint trap.",
+  "Draft a hard-first plan for today with 3 concrete moves.",
   "What is the key risk in my current board and how do I reduce it now?",
 ];
 
@@ -186,15 +186,15 @@ export default function AssistantPanel({ token, onAuthError }) {
       </div>
 
       <form onSubmit={addEntry} className="shell" style={{ marginTop: 8 }}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Knowledge title" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Teach the assistant a useful fact" />
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="Knowledge content"
+          placeholder="Paste the fact, note, or reference the assistant should use"
           rows={4}
           style={{ border: "1px solid var(--line)", borderRadius: 9, padding: 10 }}
         />
-        <button className="primary" type="submit">Add knowledge</button>
+        <button className="primary" type="submit">Save knowledge</button>
       </form>
 
       <form onSubmit={askAssistant} className="controls" style={{ marginTop: 12 }}>
@@ -212,9 +212,9 @@ export default function AssistantPanel({ token, onAuthError }) {
           <strong>AI executive brief</strong>
           <div>{answer}</div>
           <div className="controls">
-            <button type="button" onClick={() => saveDecision("IN MOTION")}>Save to ledger</button>
-            <button type="button" onClick={createTaskFromAnswer}>Create P1 task</button>
-            <button type="button" onClick={() => saveDecision("DONE")}>Mark as done</button>
+            <button type="button" onClick={() => saveDecision("IN MOTION")}>Log to ledger</button>
+            <button type="button" onClick={createTaskFromAnswer}>Convert to P1 task</button>
+            <button type="button" onClick={() => saveDecision("DONE")}>Mark complete</button>
           </div>
         </article>
       ) : null}

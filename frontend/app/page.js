@@ -102,7 +102,7 @@ export default function Home() {
       <main>
         <section className="panel" style={{ maxWidth: 560, margin: "24px auto" }}>
           <h1>Noble Savage OS</h1>
-          <p className="notice">Restoring secure session...</p>
+          <p className="notice">Restoring secure session and checking the AI console...</p>
         </section>
       </main>
     );

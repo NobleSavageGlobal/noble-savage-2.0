@@ -81,7 +81,7 @@ export default function OnboardingPanel({ token, onAuthError }) {
       <div className="onboarding-head">
         <h2>Onboarding Bot</h2>
         <button onClick={resetFlow} disabled={loading}>
-          Reset
+          Restart
         </button>
       </div>
 
@@ -124,11 +124,11 @@ export default function OnboardingPanel({ token, onAuthError }) {
         <input
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
-          placeholder="Your answer"
+          placeholder="Answer in plain language"
           style={{ flex: 1, minWidth: 220 }}
         />
         <button className="primary" type="submit" disabled={loading}>
-          Submit
+          Send answer
         </button>
       </form>
 
@@ -136,7 +136,7 @@ export default function OnboardingPanel({ token, onAuthError }) {
         <button onClick={() => sendTurn("yes")} disabled={loading}>
           Confirm
         </button>
-          <button onClick={() => sendTurn("revise")} disabled={loading}>Revise</button>
+        <button onClick={() => sendTurn("revise")} disabled={loading}>Revise</button>
       </div>
     </section>
   );

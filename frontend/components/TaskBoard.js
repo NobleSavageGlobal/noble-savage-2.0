@@ -211,7 +211,7 @@ export default function TaskBoard({ token, onAuthError }) {
             <input
               value={form.task}
               onChange={(e) => setForm((v) => ({ ...v, task: e.target.value }))}
-              placeholder="One concrete task to ship"
+              placeholder="One concrete move the assistant should track"
               style={{ minWidth: 240, flex: 1 }}
             />
             <select
@@ -234,12 +234,12 @@ export default function TaskBoard({ token, onAuthError }) {
               <option value="P3">P3</option>
             </select>
             <button className="primary" type="submit">
-              Add task
+              Hand off task
             </button>
           </form>
 
           {loading ? <p>Loading tasks...</p> : null}
-          {!loading && !tasks.length ? <p className="notice">No tasks yet. Add your first concrete shipping task above.</p> : null}
+          {!loading && !tasks.length ? <p className="notice">No tasks yet. Hand the assistant the first concrete move above.</p> : null}
           {tasks.map((task) => (
             <article key={task.id} className="task-row">
               <strong>{task.task}</strong>
@@ -260,7 +260,7 @@ export default function TaskBoard({ token, onAuthError }) {
                   <option>Done</option>
                 </select>
                 <button type="button" onClick={() => deleteTask(task.id)}>
-                  Delete
+                  Remove
                 </button>
               </div>
             </article>
