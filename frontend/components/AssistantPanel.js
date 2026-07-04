@@ -14,6 +14,9 @@ const QUICK_PROMPTS = [
 export default function AssistantPanel({ token, onAuthError }) {
   const [knowledge, setKnowledge] = useState([]);
   const [workstreams, setWorkstreams] = useState([]);
+  const [brief, setBrief] = useState("");
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState("");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [question, setQuestion] = useState("");
@@ -63,10 +66,42 @@ export default function AssistantPanel({ token, onAuthError }) {
     }
   }, [handleAuthError, token]);
 
+  const loadBrief = useCallback(async () => {
+    if (!token) return;
+    setBriefLoading(true);
+    setBriefError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/assistant/briefing`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (handleAuthError(res)) return;
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBriefError(body.detail || "Unable to load proactive brief.");
+        return;
+      }
+      setBrief(body.answer || "");
+    } catch {
+      setBriefError("Unable to load proactive brief.");
+    } finally {
+      setBriefLoading(false);
+    }
+  }, [handleAuthError, token]);
+
   useEffect(() => {
     loadKnowledge();
     loadWorkstreams();
-  }, [loadKnowledge, loadWorkstreams]);
+    loadBrief();
+  }, [loadBrief, loadKnowledge, loadWorkstreams]);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setInterval(() => {
+      loadBrief();
+    }, 120000);
+    return () => window.clearInterval(timer);
+  }, [loadBrief, token]);
 
   async function addEntry(e) {
     e.preventDefault();
@@ -176,6 +211,16 @@ export default function AssistantPanel({ token, onAuthError }) {
       <p className="notice">Use one command and let the assistant drive the next action, ledger update, and task capture.</p>
       {error ? <p className="status-error">{error}</p> : null}
       {actionNote ? <p className="notice">{actionNote}</p> : null}
+
+      <article className="task-row" style={{ marginTop: 10 }}>
+        <strong>Proactive brief</strong>
+        {briefLoading ? <div className="notice">Refreshing live brief...</div> : null}
+        {briefError ? <div className="status-error">{briefError}</div> : null}
+        {brief ? <div>{brief}</div> : <div className="notice">The assistant will surface the highest-leverage move here automatically.</div>}
+        <div className="controls">
+          <button type="button" onClick={loadBrief}>Refresh brief</button>
+        </div>
+      </article>
 
       <div className="controls" style={{ marginTop: 8 }}>
         {QUICK_PROMPTS.map((prompt) => (

@@ -78,6 +78,22 @@ Output style contract:
 - If information is incomplete, name exactly what is missing and ask one sharp follow-up.
 - Prefer concrete, operator-style language over generic coaching.
 - When the user asks what to do next, identify the single highest-leverage action first and keep it short.
+- Treat live board state as part of the problem, not background noise.
+- If you see a blocked item, overdue P1, or stale onboarding step, surface it first.
+- When the user is quiet, still produce the next best action and a short warning if something is slipping.
+""".strip()
+
+
+PROACTIVE_OPERATING_CONTRACT = """
+You are operating in proactive brief mode.
+Use the live board snapshot as primary context.
+
+Rules:
+- Start with the single highest-leverage action.
+- Name blocked items, overdue P1s, stale onboarding, and decision debt.
+- If an item should be turned into a task or decision, say so directly.
+- Keep the brief short, specific, and executable today.
+- If nothing urgent exists, say what should be monitored next.
 """.strip()
 
 
@@ -96,10 +112,23 @@ def build_context(citations: list[dict[str, Any]]) -> str:
     return "\n\n".join(chunks)
 
 
-async def query_openrouter(question: str, citations: list[dict[str, Any]]) -> str:
+def build_operational_context(snapshot: str | None) -> str:
+    if not snapshot or not snapshot.strip():
+        return "No live board snapshot was supplied."
+    return snapshot.strip()
+
+
+async def query_openrouter(
+    question: str,
+    citations: list[dict[str, Any]],
+    operational_context: str | None = None,
+    proactive: bool = False,
+) -> str:
     context = build_context(citations)
+    live_context = build_operational_context(operational_context)
+    operating_contract = f"{ASSISTANT_OPERATING_CONTRACT}\n\n{PROACTIVE_OPERATING_CONTRACT}" if proactive else ASSISTANT_OPERATING_CONTRACT
     system_prompt = (
-        f"{ASSISTANT_OPERATING_CONTRACT}\n\n"
+        f"{operating_contract}\n\n"
         "Use the provided knowledge context as primary grounding for concrete facts. "
         "If the context is missing key facts, continue with best-effort tactical guidance and call out the exact missing facts needed to improve confidence."
     )
@@ -132,6 +161,7 @@ async def query_openrouter(question: str, citations: list[dict[str, Any]]) -> st
                 "content": (
                     f"Question:\n{question}\n\n"
                     f"Knowledge Context:\n{context}\n\n"
+                    f"Live Board Snapshot:\n{live_context}\n\n"
                     "Return a direct solution first, then immediate actions. "
                     "For decision-heavy items include confidence (0-100), second-order consequence, and one critical risk."
                 ),

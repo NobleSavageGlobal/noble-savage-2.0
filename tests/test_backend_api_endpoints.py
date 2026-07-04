@@ -106,3 +106,21 @@ def test_signal_round_trip(client: TestClient) -> None:
     data = listed.json()
     assert len(data) >= 1
     assert data[0]["kind"] == "accept"
+
+
+def test_proactive_briefing_endpoint(client: TestClient, monkeypatch) -> None:
+    headers = _auth_headers(client)
+
+    import backend.app.main as main_module
+
+    async def fake_query_openrouter(question, citations, operational_context=None, proactive=False):
+        assert proactive is True
+        assert operational_context
+        return "Highest-leverage move: ship the one blocker."
+
+    monkeypatch.setattr(main_module, "query_openrouter", fake_query_openrouter)
+
+    response = client.get("/api/assistant/briefing", headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "Highest-leverage move" in body["answer"]

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date
+from datetime import datetime, timezone
 import logging
 import os
 import time
@@ -208,6 +209,49 @@ def current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     return user
 
 
+def _build_operational_snapshot(user_id: str) -> str:
+    tasks = list_tasks(user_id)
+    workstreams = list_workstreams(user_id)
+    onboarding = get_onboarding(user_id)
+    decisions = list_decisions(user_id, limit=5)
+    signals = list_signals(user_id, limit=5)
+
+    open_p1 = [task for task in tasks if task["prio"] == "P1" and task["status"] != "Done"]
+    blocked = [task for task in tasks if task["status"] == "Blocked"]
+    this_week = [task for task in tasks if task["status"] == "This Week"]
+    in_progress = [task for task in tasks if task["status"] == "In Progress"]
+    done = [task for task in tasks if task["status"] == "Done"]
+
+    lines = [
+        f"Timestamp: {datetime.now(timezone.utc).isoformat()}",
+        f"Workstreams: {len(workstreams)} loaded",
+        f"Tasks: {len(tasks)} total | {len(open_p1)} open P1 | {len(blocked)} blocked | {len(this_week)} this week | {len(in_progress)} in progress | {len(done)} done",
+        f"Onboarding: step={onboarding['step']} complete={onboarding['complete']}",
+    ]
+
+    if open_p1:
+        lines.append("Top priority tasks:")
+        for task in open_p1[:3]:
+            lines.append(f"- {task['task']} [{task['status']}] ({task['ws']})")
+
+    if blocked:
+        lines.append("Blocked tasks:")
+        for task in blocked[:3]:
+            lines.append(f"- {task['task']} ({task['ws']})")
+
+    if decisions:
+        lines.append("Recent decisions:")
+        for decision in decisions[:3]:
+            lines.append(f"- {decision['status']}: {decision['prompt'][:120]}")
+
+    if signals:
+        lines.append("Recent signals:")
+        for signal in signals[:3]:
+            lines.append(f"- {signal['kind']} -> {signal.get('target') or 'unknown target'}")
+
+    return "\n".join(lines)
+
+
 @app.get("/health", response_model=MessageOut)
 async def health() -> MessageOut:
     return MessageOut(message="ok")
@@ -343,7 +387,31 @@ async def assistant_query(
 ) -> AssistantQueryOut:
     citations = search_knowledge(user["id"], payload.question, limit=5)
     try:
-        answer = await query_openrouter(payload.question, citations)
+        answer = await query_openrouter(
+            payload.question,
+            citations,
+            operational_context=_build_operational_snapshot(user["id"]),
+            proactive=False,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return AssistantQueryOut(
+        answer=answer,
+        citations=[KnowledgeOut(**c) for c in citations],
+    )
+
+
+@app.get("/api/assistant/briefing", response_model=AssistantQueryOut)
+async def assistant_briefing(user: dict[str, Any] = Depends(current_user)) -> AssistantQueryOut:
+    snapshot = _build_operational_snapshot(user["id"])
+    citations = search_knowledge(user["id"], "proactive operating brief", limit=3)
+    try:
+        answer = await query_openrouter(
+            "Produce a proactive operating brief with the single highest-leverage action, blockers, risks, and one recommended next update.",
+            citations,
+            operational_context=snapshot,
+            proactive=True,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return AssistantQueryOut(
