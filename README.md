@@ -95,7 +95,28 @@ This prints:
 
 ## Implemented API Surface
 
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/workstreams`
+- `PATCH /api/workstreams/:id`
+- `GET /api/tasks?filter=...`
+- `POST /api/tasks`
+- `PATCH /api/tasks/:id`
+- `DELETE /api/tasks/:id`
+- `POST /api/decisions`
+- `POST /api/signals`
+- `GET /api/signals?limit=...`
+- `GET /api/onboarding`
+- `POST /api/onboarding`
+- `POST /api/onboarding/turn`
+- `POST /api/onboarding/reset`
+- `GET /api/knowledge`
+- `POST /api/knowledge`
 - `POST /api/knowledge/upload`
+- `POST /api/knowledge/:id/reembed`
+- `POST /api/assistant/query`
+- `WS /ws/board`
 
 Compendium module (token required):
 
@@ -136,6 +157,7 @@ Compendium module (token required):
 - If `OPENROUTER_API_KEY` is missing, the assistant now returns an actionable configuration brief instead of a generic failure.
 - Knowledge entries are embedded at ingest time and can be re-embedded with the API if needed.
 - API routes under `/api/*` are protected with bearer auth (except auth/register/login).
+- Auth endpoints include in-memory per-IP rate limiting (`AUTH_RATE_LIMIT_WINDOW_SEC` and `AUTH_RATE_LIMIT_MAX_ATTEMPTS`).
 - WebSocket board channel requires `?token=<jwt>` query parameter.
 - Task create/update events are broadcast over websocket for live UI updates.
 - This is the first shipping slice; next iterations can layer Supabase Auth/Realtimes, agent orchestration, and cadence jobs without reworking structure.

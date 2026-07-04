@@ -1,9 +1,12 @@
 import asyncio
+from datetime import date
 import logging
 import os
+import time
+from collections import defaultdict, deque
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -44,6 +47,10 @@ from .knowledge_ingest import build_knowledge_payloads, parse_document
 from .schemas import (
     AssistantQueryIn,
     AssistantQueryOut,
+    DecisionCreate,
+    DecisionOut,
+    DecisionTrendPointOut,
+    DecisionWeeklySummaryOut,
     CompBriefingIn,
     CompGardenDesignIn,
     CompGardenPlantPatchIn,
@@ -60,24 +67,33 @@ from .schemas import (
     OnboardingTurnIn,
     OnboardingTurnOut,
     SignalCreate,
+    SignalOut,
     TaskCreate,
     TaskOut,
     TaskPatch,
     UserOut,
+    WorkstreamPatch,
     WorkstreamOut,
 )
 from .store import (
+    create_decision,
     create_knowledge,
     create_user,
     create_signal,
     create_task,
+    delete_task,
     get_user_by_email,
     get_user_by_id,
+    get_decision_weekly_summary,
+    get_decision_trend,
     get_onboarding,
     init_db,
+    list_signals,
     list_tasks,
+    list_decisions,
     list_knowledge,
     list_workstreams,
+    patch_workstream,
     patch_task,
     save_onboarding,
     search_knowledge,
@@ -119,6 +135,9 @@ manager = ConnectionManager()
 app = FastAPI(title="Noble Savage API", version="0.1.0")
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
+AUTH_RATE_LIMIT_WINDOW_SEC = int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SEC", "60"))
+AUTH_RATE_LIMIT_MAX_ATTEMPTS = int(os.getenv("AUTH_RATE_LIMIT_MAX_ATTEMPTS", "12"))
+_auth_attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
 def _allowed_origins() -> list[str]:
@@ -138,9 +157,29 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _enforce_auth_rate_limit(request: Request) -> None:
+    now = time.time()
+    key = _get_client_ip(request)
+    attempts = _auth_attempts[key]
+    while attempts and now - attempts[0] > AUTH_RATE_LIMIT_WINDOW_SEC:
+        attempts.popleft()
+    if len(attempts) >= AUTH_RATE_LIMIT_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many authentication attempts. Please retry shortly.")
+    attempts.append(now)
 
 
 @app.on_event("startup")
@@ -175,7 +214,8 @@ async def health() -> MessageOut:
 
 
 @app.post("/api/auth/register", response_model=AuthTokenOut)
-async def auth_register(payload: AuthRegisterIn) -> AuthTokenOut:
+async def auth_register(payload: AuthRegisterIn, request: Request) -> AuthTokenOut:
+    _enforce_auth_rate_limit(request)
     try:
         user = create_user(
             email=payload.email,
@@ -190,7 +230,8 @@ async def auth_register(payload: AuthRegisterIn) -> AuthTokenOut:
 
 
 @app.post("/api/auth/login", response_model=AuthTokenOut)
-async def auth_login(payload: AuthLoginIn) -> AuthTokenOut:
+async def auth_login(payload: AuthLoginIn, request: Request) -> AuthTokenOut:
+    _enforce_auth_rate_limit(request)
     user = get_user_by_email(payload.email)
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -207,6 +248,22 @@ async def auth_me(user: dict[str, Any] = Depends(current_user)) -> UserOut:
 @app.get("/api/workstreams", response_model=list[WorkstreamOut])
 async def get_workstreams(user: dict[str, Any] = Depends(current_user)) -> list[WorkstreamOut]:
     return [WorkstreamOut(**ws) for ws in list_workstreams(user["id"])]
+
+
+@app.patch("/api/workstreams/{workstream_id}", response_model=WorkstreamOut)
+async def update_workstream(
+    workstream_id: str,
+    payload: WorkstreamPatch,
+    user: dict[str, Any] = Depends(current_user),
+) -> WorkstreamOut:
+    patch_data = payload.model_dump(exclude_none=True)
+    if not patch_data:
+        raise HTTPException(status_code=400, detail="At least one field is required")
+
+    updated = patch_workstream(user["id"], workstream_id, patch_data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Workstream not found")
+    return WorkstreamOut(**updated)
 
 
 @app.get("/api/knowledge", response_model=list[KnowledgeOut])
@@ -505,7 +562,10 @@ async def get_tasks(
 
 @app.post("/api/tasks", response_model=TaskOut)
 async def add_task(payload: TaskCreate, user: dict[str, Any] = Depends(current_user)) -> TaskOut:
-    task = create_task(user["id"], payload.model_dump(mode="json"))
+    try:
+        task = create_task(user["id"], payload.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     asyncio.create_task(manager.broadcast({"type": "task.created", "task": task}, user["id"]))
     return TaskOut(**task)
 
@@ -514,17 +574,82 @@ async def add_task(payload: TaskCreate, user: dict[str, Any] = Depends(current_u
 async def update_task(
     task_id: str, payload: TaskPatch, user: dict[str, Any] = Depends(current_user)
 ) -> TaskOut:
-    task = patch_task(user["id"], task_id, payload.model_dump(mode="json"))
+    try:
+        task = patch_task(user["id"], task_id, payload.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     asyncio.create_task(manager.broadcast({"type": "task.updated", "task": task}, user["id"]))
     return TaskOut(**task)
 
 
+@app.delete("/api/tasks/{task_id}", response_model=MessageOut)
+async def remove_task(task_id: str, user: dict[str, Any] = Depends(current_user)) -> MessageOut:
+    deleted = delete_task(user["id"], task_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Task not found")
+    asyncio.create_task(manager.broadcast({"type": "task.deleted", "task_id": task_id}, user["id"]))
+    return MessageOut(message="task deleted")
+
+
+@app.post("/api/decisions", response_model=DecisionOut)
+async def add_decision(payload: DecisionCreate, user: dict[str, Any] = Depends(current_user)) -> DecisionOut:
+    decision = create_decision(user["id"], payload.model_dump(mode="json"))
+    return DecisionOut(**decision)
+
+
+@app.get("/api/decisions", response_model=list[DecisionOut])
+async def get_decisions(
+    limit: int = Query(default=25, ge=1, le=200),
+    week_of: str | None = Query(default=None),
+    user: dict[str, Any] = Depends(current_user),
+) -> list[DecisionOut]:
+    week_of_date = None
+    if week_of:
+        try:
+            week_of_date = date.fromisoformat(week_of)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid week_of date") from exc
+    decisions = list_decisions(user["id"], limit=limit, week_of=week_of_date)
+    return [DecisionOut(**d) for d in decisions]
+
+
+@app.get("/api/decisions/weekly-summary", response_model=DecisionWeeklySummaryOut)
+async def get_decisions_weekly_summary(
+    week_of: str = Query(...),
+    user: dict[str, Any] = Depends(current_user),
+) -> DecisionWeeklySummaryOut:
+    try:
+        week_of_date = date.fromisoformat(week_of)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid week_of date") from exc
+
+    summary = get_decision_weekly_summary(user["id"], week_of_date)
+    return DecisionWeeklySummaryOut(**summary)
+
+
+@app.get("/api/decisions/trend", response_model=list[DecisionTrendPointOut])
+async def get_decisions_trend(
+    weeks: int = Query(default=8, ge=1, le=52),
+    user: dict[str, Any] = Depends(current_user),
+) -> list[DecisionTrendPointOut]:
+    trend = get_decision_trend(user["id"], weeks=weeks)
+    return [DecisionTrendPointOut(**point) for point in trend]
+
+
 @app.post("/api/signals", response_model=MessageOut)
 async def add_signal(payload: SignalCreate, user: dict[str, Any] = Depends(current_user)) -> MessageOut:
     create_signal(user["id"], payload.model_dump(mode="json"))
     return MessageOut(message="signal recorded")
+
+
+@app.get("/api/signals", response_model=list[SignalOut])
+async def get_signals(
+    limit: int = Query(default=25, ge=1, le=200),
+    user: dict[str, Any] = Depends(current_user),
+) -> list[SignalOut]:
+    return [SignalOut(**signal) for signal in list_signals(user["id"], limit=limit)]
 
 
 @app.get("/api/onboarding", response_model=OnboardingState)

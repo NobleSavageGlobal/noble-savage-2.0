@@ -1,7 +1,8 @@
 from datetime import datetime, date
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 TaskPriority = Literal["P1", "P2", "P3"]
@@ -10,25 +11,26 @@ SignalKind = Literal["accept", "edit", "dismiss", "correct", "gap"]
 
 
 class TaskCreate(BaseModel):
-    ws: str
-    task: str = Field(min_length=1)
+    ws: str = Field(min_length=1, max_length=120)
+    task: str = Field(min_length=1, max_length=500)
     prio: TaskPriority = "P2"
     status: TaskStatus = "Backlog"
-    owner: str | None = None
-    notes: str | None = None
-    deleg: str | None = None
-    bot: str | None = None
+    owner: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=4000)
+    deleg: str | None = Field(default=None, max_length=4000)
+    bot: str | None = Field(default=None, max_length=120)
     due: date | None = None
 
 
 class TaskPatch(BaseModel):
-    task: str | None = None
+    ws: str | None = Field(default=None, min_length=1, max_length=120)
+    task: str | None = Field(default=None, min_length=1, max_length=500)
     prio: TaskPriority | None = None
     status: TaskStatus | None = None
-    owner: str | None = None
-    notes: str | None = None
-    deleg: str | None = None
-    bot: str | None = None
+    owner: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=4000)
+    deleg: str | None = Field(default=None, max_length=4000)
+    bot: str | None = Field(default=None, max_length=120)
     due: date | None = None
 
 
@@ -49,11 +51,11 @@ class TaskOut(BaseModel):
 
 class SignalCreate(BaseModel):
     kind: SignalKind
-    target: str | None = None
-    before: str | None = None
-    after: str | None = None
-    agent: str | None = None
-    notes: str | None = None
+    target: str | None = Field(default=None, max_length=300)
+    before: str | None = Field(default=None, max_length=4000)
+    after: str | None = Field(default=None, max_length=4000)
+    agent: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=4000)
 
 
 class OnboardingState(BaseModel):
@@ -76,14 +78,45 @@ class OnboardingTurnOut(BaseModel):
 
 
 class AuthRegisterIn(BaseModel):
-    email: str
-    password: str = Field(min_length=8)
-    name: str | None = None
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+    name: str | None = Field(default=None, max_length=120)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized):
+            raise ValueError("Invalid email format")
+        return normalized
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        checks = [
+            re.search(r"[a-z]", value),
+            re.search(r"[A-Z]", value),
+            re.search(r"\d", value),
+            re.search(r"[^A-Za-z0-9]", value),
+        ]
+        if not all(checks):
+            raise ValueError(
+                "Password must include upper, lower, digit, and special character"
+            )
+        return value
 
 
 class AuthLoginIn(BaseModel):
-    email: str
+    email: str = Field(min_length=3, max_length=254)
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized):
+            raise ValueError("Invalid email format")
+        return normalized
 
 
 class AuthTokenOut(BaseModel):
@@ -107,8 +140,64 @@ class WorkstreamOut(BaseModel):
     color: str | None = None
 
 
+class WorkstreamPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    tier: str | None = Field(default=None, max_length=80)
+    owner: str | None = Field(default=None, max_length=120)
+    objective: str | None = Field(default=None, max_length=4000)
+    why: str | None = Field(default=None, max_length=4000)
+    color: str | None = Field(default=None, max_length=20)
+
+
 class MessageOut(BaseModel):
     message: str
+
+
+class DecisionCreate(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+    recommendation: Any | None = None
+    actual_action: str | None = Field(default=None, max_length=4000)
+    status: Literal["DONE", "IN MOTION", "STILL BLUEPRINT"]
+    week_of: date | None = None
+
+
+class DecisionOut(BaseModel):
+    id: str
+    prompt: str
+    recommendation: Any | None = None
+    actual_action: str | None = None
+    status: Literal["DONE", "IN MOTION", "STILL BLUEPRINT"]
+    week_of: date | None = None
+    ts: datetime
+
+
+class DecisionWeeklySummaryOut(BaseModel):
+    week_of: date
+    done: int
+    in_motion: int
+    still_blueprint: int
+    total: int
+    ship_to_plan_ratio: float
+
+
+class DecisionTrendPointOut(BaseModel):
+    week_of: date
+    done: int
+    in_motion: int
+    still_blueprint: int
+    total: int
+    ship_to_plan_ratio: float
+
+
+class SignalOut(BaseModel):
+    id: str
+    kind: SignalKind
+    target: str | None = None
+    before: str | None = None
+    after: str | None = None
+    agent: str | None = None
+    notes: str | None = None
+    ts: datetime
 
 
 class KnowledgeIn(BaseModel):

@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -426,6 +426,58 @@ def upsert_workstream(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return dict(fresh._mapping)
 
 
+def patch_workstream(user_id: str, ws_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                select id, name, tier, owner, objective, why, color
+                from workstreams
+                where id = :id and user_id = :user_id
+                """
+            ),
+            {"id": ws_id, "user_id": user_id},
+        ).first()
+        if not row:
+            return None
+
+        merged = dict(row._mapping)
+        merged.update({k: v for k, v in patch.items() if v is not None})
+
+        conn.execute(
+            text(
+                """
+                update workstreams
+                set name = :name, tier = :tier, owner = :owner,
+                    objective = :objective, why = :why, color = :color
+                where id = :id and user_id = :user_id
+                """
+            ),
+            {
+                "id": ws_id,
+                "user_id": user_id,
+                "name": merged["name"],
+                "tier": merged.get("tier"),
+                "owner": merged.get("owner"),
+                "objective": merged.get("objective"),
+                "why": merged.get("why"),
+                "color": merged.get("color"),
+            },
+        )
+
+        fresh = conn.execute(
+            text(
+                """
+                select id, name, tier, owner, objective, why, color
+                from workstreams
+                where id = :id and user_id = :user_id
+                """
+            ),
+            {"id": ws_id, "user_id": user_id},
+        ).one()
+    return dict(fresh._mapping)
+
+
 def list_tasks(user_id: str, status_filter: str | None = None) -> list[dict[str, Any]]:
     with engine.connect() as conn:
         if status_filter:
@@ -447,7 +499,19 @@ def list_tasks(user_id: str, status_filter: str | None = None) -> list[dict[str,
     return [_row_to_task(r) for r in rows]
 
 
+def _workstream_exists(user_id: str, ws_id: str) -> bool:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("select id from workstreams where user_id = :user_id and id = :ws_id"),
+            {"user_id": user_id, "ws_id": ws_id},
+        ).first()
+    return row is not None
+
+
 def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not _workstream_exists(user_id, payload["ws"]):
+        raise ValueError("Invalid workstream id for current user")
+
     task_id = str(uuid.uuid4())
     now = datetime.utcnow()
     with engine.begin() as conn:
@@ -492,6 +556,8 @@ def patch_task(user_id: str, task_id: str, patch: dict[str, Any]) -> dict[str, A
 
         merged = dict(row._mapping)
         merged.update({k: v for k, v in patch.items() if v is not None})
+        if "ws" in patch and patch.get("ws") is not None and not _workstream_exists(user_id, patch["ws"]):
+            raise ValueError("Invalid workstream id for current user")
         merged["updated_at"] = datetime.utcnow()
 
         conn.execute(
@@ -526,6 +592,15 @@ def patch_task(user_id: str, task_id: str, patch: dict[str, Any]) -> dict[str, A
     return _row_to_task(fresh)
 
 
+def delete_task(user_id: str, task_id: str) -> bool:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("delete from tasks where id = :id and user_id = :user_id"),
+            {"id": task_id, "user_id": user_id},
+        )
+    return result.rowcount > 0
+
+
 def create_signal(user_id: str, payload: dict[str, Any]) -> None:
     with engine.begin() as conn:
         conn.execute(
@@ -546,6 +621,200 @@ def create_signal(user_id: str, payload: dict[str, Any]) -> None:
                 "notes": payload.get("notes"),
             },
         )
+
+
+def list_signals(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                select id, kind, target, before, after, agent, notes, ts
+                from signals
+                where user_id = :user_id
+                order by ts desc
+                limit :limit
+                """
+            ),
+            {"user_id": user_id, "limit": limit},
+        ).all()
+    return [
+        {
+            "id": r._mapping["id"],
+            "kind": r._mapping["kind"],
+            "target": r._mapping.get("target"),
+            "before": r._mapping.get("before"),
+            "after": r._mapping.get("after"),
+            "agent": r._mapping.get("agent"),
+            "notes": r._mapping.get("notes"),
+            "ts": _to_datetime(r._mapping["ts"]),
+        }
+        for r in rows
+    ]
+
+
+def create_decision(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    record_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    recommendation = payload.get("recommendation")
+    recommendation_json = None if recommendation is None else json.dumps(recommendation)
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                insert into decisions (id, user_id, ts, prompt, recommendation, actual_action, status, week_of)
+                values (:id, :user_id, :ts, :prompt, :recommendation, :actual_action, :status, :week_of)
+                """
+            ),
+            {
+                "id": record_id,
+                "user_id": user_id,
+                "ts": now,
+                "prompt": payload["prompt"],
+                "recommendation": recommendation_json,
+                "actual_action": payload.get("actual_action"),
+                "status": payload["status"],
+                "week_of": payload.get("week_of"),
+            },
+        )
+        row = conn.execute(
+            text(
+                """
+                select id, prompt, recommendation, actual_action, status, week_of, ts
+                from decisions
+                where id = :id and user_id = :user_id
+                """
+            ),
+            {"id": record_id, "user_id": user_id},
+        ).one()
+
+    rec_value = row._mapping["recommendation"]
+    return {
+        "id": row._mapping["id"],
+        "prompt": row._mapping["prompt"],
+        "recommendation": json.loads(rec_value) if rec_value else None,
+        "actual_action": row._mapping["actual_action"],
+        "status": row._mapping["status"],
+        "week_of": _to_date(row._mapping["week_of"]),
+        "ts": _to_datetime(row._mapping["ts"]),
+    }
+
+
+def list_decisions(user_id: str, limit: int = 50, week_of: date | None = None) -> list[dict[str, Any]]:
+    query = (
+        """
+        select id, prompt, recommendation, actual_action, status, week_of, ts
+        from decisions
+        where user_id = :user_id
+        """
+    )
+    params: dict[str, Any] = {"user_id": user_id, "limit": limit}
+    if week_of:
+        query += " and week_of = :week_of"
+        params["week_of"] = week_of
+    query += " order by ts desc limit :limit"
+
+    with engine.connect() as conn:
+        rows = conn.execute(text(query), params).all()
+
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        rec_value = row._mapping["recommendation"]
+        output.append(
+            {
+                "id": row._mapping["id"],
+                "prompt": row._mapping["prompt"],
+                "recommendation": json.loads(rec_value) if rec_value else None,
+                "actual_action": row._mapping["actual_action"],
+                "status": row._mapping["status"],
+                "week_of": _to_date(row._mapping["week_of"]),
+                "ts": _to_datetime(row._mapping["ts"]),
+            }
+        )
+    return output
+
+
+def get_decision_weekly_summary(user_id: str, week_of: date) -> dict[str, Any]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                select status, count(*) as total
+                from decisions
+                where user_id = :user_id and week_of = :week_of
+                group by status
+                """
+            ),
+            {"user_id": user_id, "week_of": week_of},
+        ).all()
+
+    counts = {"DONE": 0, "IN MOTION": 0, "STILL BLUEPRINT": 0}
+    for row in rows:
+        status = row._mapping["status"]
+        if status in counts:
+            counts[status] = int(row._mapping["total"])
+
+    total = counts["DONE"] + counts["IN MOTION"] + counts["STILL BLUEPRINT"]
+    ratio = (counts["DONE"] / total) if total else 0.0
+    return {
+        "week_of": week_of,
+        "done": counts["DONE"],
+        "in_motion": counts["IN MOTION"],
+        "still_blueprint": counts["STILL BLUEPRINT"],
+        "total": total,
+        "ship_to_plan_ratio": round(ratio, 4),
+    }
+
+
+def get_decision_trend(user_id: str, weeks: int = 8) -> list[dict[str, Any]]:
+    weeks = max(1, min(52, weeks))
+    start_week = date.today() - timedelta(days=(weeks - 1) * 7)
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                select week_of, status, count(*) as total
+                from decisions
+                where user_id = :user_id
+                  and week_of is not null
+                  and week_of >= :start_week
+                group by week_of, status
+                order by week_of asc
+                """
+            ),
+            {"user_id": user_id, "start_week": start_week},
+        ).all()
+
+    by_week: dict[date, dict[str, int]] = {}
+    for row in rows:
+        week = _to_date(row._mapping["week_of"])
+        if not week:
+            continue
+        if week not in by_week:
+            by_week[week] = {"DONE": 0, "IN MOTION": 0, "STILL BLUEPRINT": 0}
+        status = row._mapping["status"]
+        if status in by_week[week]:
+            by_week[week][status] = int(row._mapping["total"])
+
+    trend: list[dict[str, Any]] = []
+    for week in sorted(by_week.keys()):
+        done = by_week[week]["DONE"]
+        in_motion = by_week[week]["IN MOTION"]
+        still_blueprint = by_week[week]["STILL BLUEPRINT"]
+        total = done + in_motion + still_blueprint
+        ratio = (done / total) if total else 0.0
+        trend.append(
+            {
+                "week_of": week,
+                "done": done,
+                "in_motion": in_motion,
+                "still_blueprint": still_blueprint,
+                "total": total,
+                "ship_to_plan_ratio": round(ratio, 4),
+            }
+        )
+    return trend
 
 
 def get_onboarding(user_id: str) -> dict[str, Any]:
