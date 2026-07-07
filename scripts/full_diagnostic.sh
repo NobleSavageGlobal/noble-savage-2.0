@@ -53,7 +53,7 @@ from docx import Document
 base = "https://noble-savage-backend-production.up.railway.app"
 run_id = uuid.uuid4().hex[:8]
 email = f"prod.diag.script.{run_id}@noblesavage.local"
-password = f"prod-diag-{secrets.token_urlsafe(12)}"
+password = f"ProdDiag!{secrets.token_hex(4)}a1"
 
 with httpx.Client(timeout=60.0) as client:
 	reg = client.post(

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+function safeId() {
+  if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `ns-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function inferKind(file) {
   const name = (file.name || "").toLowerCase();
   const type = (file.type || "").toLowerCase();
@@ -163,7 +170,7 @@ export default function useWorkspaceAttachments({
     const records = valid.map((file) => {
       const kind = inferKind(file);
       return {
-        id: crypto.randomUUID(),
+        id: safeId(),
         name: file.name,
         size: file.size,
         mimeType: file.type,
