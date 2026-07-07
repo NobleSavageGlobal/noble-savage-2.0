@@ -119,7 +119,7 @@ const DEFAULT_PROJECTS = [
 
 function createThread(title = "New thread", projectId = DEFAULT_PROJECTS[0].id) {
   return {
-    id: crypto.randomUUID(),
+    id: safeId(),
     projectId,
     title,
     messages: [],
@@ -187,6 +187,13 @@ function ageBucket(ts) {
 
 function hasArtifact(text = "") {
   return /```|^\s*\|.+\|\s*$/m.test(text);
+}
+
+function safeId() {
+  if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `ns-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function buildInstructionPrefix(project) {
@@ -627,7 +634,7 @@ export default function Home() {
   async function addLinkCard(url) {
     if (!activeThreadId || !url) return;
     const base = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       url,
       title: new URL(url).hostname,
       description: "Fetching preview...",
@@ -784,14 +791,14 @@ export default function Home() {
     const threadId = activeThread.id;
     const attachedIds = [...(activeThread.attachments || [])].slice(0, MAX_FILES_PER_MESSAGE);
     const userMessage = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       role: "user",
       content: question,
       attachments: attachedIds,
       ts: Date.now(),
     };
     const assistantMessage = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       role: "assistant",
       content: "",
       citations: [],
@@ -876,7 +883,7 @@ export default function Home() {
     if (!activeThread || !nextText.trim()) return;
     const threadId = activeThread.id;
     const newAssistant = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       role: "assistant",
       content: "",
       citations: [],
@@ -1062,7 +1069,7 @@ export default function Home() {
     if (!source) return;
     const copy = {
       ...source,
-      id: crypto.randomUUID(),
+      id: safeId(),
       title: `${source.title} (copy)`,
       archived: false,
       pinned: false,
@@ -1099,7 +1106,7 @@ export default function Home() {
     const firstUserMessage = activeThread.messages.find((message) => message.role === "user");
     const starterPrompt = (firstUserMessage?.content || activeThread.draft || "").trim();
     const template = {
-      id: crypto.randomUUID(),
+      id: safeId(),
       name: `${activeThread.title || "Thread"} template`,
       projectId: activeProject.id,
       projectName: activeProject.name,
