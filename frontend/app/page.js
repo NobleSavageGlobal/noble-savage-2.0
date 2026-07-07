@@ -471,12 +471,6 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [composerText, lastInteractionAt, placeholderIndex]);
 
-  useEffect(() => {
-    if (!activeThread) return;
-    const shouldOpen = railPinned || artifactItems.length > 0 || sourceItems.length > 0 || files.length > 0;
-    setRailOpen(shouldOpen);
-  }, [activeThread, artifactItems.length, sourceItems.length, files.length, railPinned]);
-
   function updateActiveThread(updater) {
     setThreads((current) => current.map((thread) => {
       if (thread.id !== activeThreadId) return thread;
@@ -547,6 +541,12 @@ export default function Home() {
 
   const composerAttachmentIds = activeThread?.attachments || [];
   const files = composerAttachmentIds.map((id) => fileLookup[id]).filter(Boolean);
+
+  useEffect(() => {
+    if (!activeThread) return;
+    const shouldOpen = railPinned || artifactItems.length > 0 || sourceItems.length > 0 || files.length > 0;
+    setRailOpen(shouldOpen);
+  }, [activeThread, artifactItems.length, sourceItems.length, files.length, railPinned]);
 
   const persistUnsentThread = useCallback((threadId, draft) => {
     if (!threadId) return;
