@@ -293,6 +293,29 @@ def init_db() -> None:
                 """
             )
         )
+        conn.execute(
+            text(
+                """
+                create table if not exists assistant_logs (
+                    id text primary key,
+                    user_id text,
+                    ts timestamp default CURRENT_TIMESTAMP,
+                    question text,
+                    answer text,
+                    mode text,
+                    model text,
+                    latency_ms integer default 0,
+                    citations_count integer default 0,
+                    alignment_score integer default 0,
+                    alignment_status text,
+                    missing_terms text,
+                    tools text,
+                    helpful integer,
+                    feedback_note text
+                )
+                """
+            )
+        )
 
     # Ensure tenant columns exist when upgrading older local databases.
     _ensure_column("workstreams", "user_id", "text")
@@ -309,6 +332,19 @@ def init_db() -> None:
     _ensure_column("knowledge", "token_count", "integer default 0")
     _ensure_column("knowledge", "status", "text default 'indexed'")
     _ensure_column("knowledge", "last_indexed_at", "timestamp")
+    _ensure_column("assistant_logs", "user_id", "text")
+    _ensure_column("assistant_logs", "question", "text")
+    _ensure_column("assistant_logs", "answer", "text")
+    _ensure_column("assistant_logs", "mode", "text")
+    _ensure_column("assistant_logs", "model", "text")
+    _ensure_column("assistant_logs", "latency_ms", "integer default 0")
+    _ensure_column("assistant_logs", "citations_count", "integer default 0")
+    _ensure_column("assistant_logs", "alignment_score", "integer default 0")
+    _ensure_column("assistant_logs", "alignment_status", "text")
+    _ensure_column("assistant_logs", "missing_terms", "text")
+    _ensure_column("assistant_logs", "tools", "text")
+    _ensure_column("assistant_logs", "helpful", "integer")
+    _ensure_column("assistant_logs", "feedback_note", "text")
 
 
 def create_user(email: str, password_hash: str, name: str | None) -> dict[str, Any]:
@@ -670,6 +706,133 @@ def list_signals(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
         }
         for r in rows
     ]
+
+
+def create_assistant_log(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    log_id = str(uuid.uuid4())
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                insert into assistant_logs (
+                    id, user_id, question, answer, mode, model, latency_ms,
+                    citations_count, alignment_score, alignment_status,
+                    missing_terms, tools, helpful, feedback_note
+                )
+                values (
+                    :id, :user_id, :question, :answer, :mode, :model, :latency_ms,
+                    :citations_count, :alignment_score, :alignment_status,
+                    :missing_terms, :tools, :helpful, :feedback_note
+                )
+                """
+            ),
+            {
+                "id": log_id,
+                "user_id": user_id,
+                "question": payload.get("question", ""),
+                "answer": payload.get("answer", ""),
+                "mode": payload.get("mode"),
+                "model": payload.get("model"),
+                "latency_ms": int(payload.get("latency_ms", 0) or 0),
+                "citations_count": int(payload.get("citations_count", 0) or 0),
+                "alignment_score": int(payload.get("alignment_score", 0) or 0),
+                "alignment_status": payload.get("alignment_status"),
+                "missing_terms": json.dumps(payload.get("missing_terms", [])),
+                "tools": json.dumps(payload.get("tools", [])),
+                "helpful": payload.get("helpful"),
+                "feedback_note": payload.get("feedback_note"),
+            },
+        )
+    return {"id": log_id}
+
+
+def update_assistant_feedback(user_id: str, query_id: str, helpful: bool, note: str | None = None) -> bool:
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                update assistant_logs
+                set helpful = :helpful, feedback_note = :feedback_note
+                where id = :id and user_id = :user_id
+                """
+            ),
+            {
+                "id": query_id,
+                "user_id": user_id,
+                "helpful": 1 if helpful else 0,
+                "feedback_note": note,
+            },
+        )
+    return result.rowcount > 0
+
+
+def get_assistant_metrics(user_id: str, limit: int = 200) -> dict[str, Any]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                select alignment_score, alignment_status, helpful, missing_terms
+                from assistant_logs
+                where user_id = :user_id
+                order by ts desc
+                limit :limit
+                """
+            ),
+            {"user_id": user_id, "limit": limit},
+        ).all()
+
+    total = 0
+    sum_score = 0
+    strong = 0
+    partial = 0
+    weak = 0
+    helpful = 0
+    not_helpful = 0
+    missing_counts: dict[str, int] = {}
+
+    for row in rows:
+        m = row._mapping
+        total += 1
+        score = int(m.get("alignment_score") or 0)
+        sum_score += score
+        status = (m.get("alignment_status") or "").lower()
+        if status == "strong":
+            strong += 1
+        elif status == "weak":
+            weak += 1
+        else:
+            partial += 1
+
+        helpful_value = m.get("helpful")
+        if helpful_value == 1:
+            helpful += 1
+        elif helpful_value == 0:
+            not_helpful += 1
+
+        terms = _safe_json_loads(m.get("missing_terms"), [])
+        if isinstance(terms, list):
+            for term in terms:
+                normalized = str(term or "").strip().lower()
+                if not normalized:
+                    continue
+                missing_counts[normalized] = missing_counts.get(normalized, 0) + 1
+
+    average_alignment_score = round(sum_score / total) if total else 0
+    top_missing_terms = [
+        {"term": term, "count": count}
+        for term, count in sorted(missing_counts.items(), key=lambda item: item[1], reverse=True)[:8]
+    ]
+
+    return {
+        "total_queries": total,
+        "average_alignment_score": average_alignment_score,
+        "strong": strong,
+        "partial": partial,
+        "weak": weak,
+        "helpful": helpful,
+        "not_helpful": not_helpful,
+        "top_missing_terms": top_missing_terms,
+    }
 
 
 def create_decision(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:

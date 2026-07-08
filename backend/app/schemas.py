@@ -228,6 +228,13 @@ class AssistantToolCallOut(BaseModel):
     count: int | None = None
 
 
+class AssistantAlignmentOut(BaseModel):
+    score: int = 0
+    status: Literal["strong", "partial", "weak"] = "partial"
+    matched_terms: list[str] = Field(default_factory=list)
+    missing_terms: list[str] = Field(default_factory=list)
+
+
 class AssistantRuntimeOut(BaseModel):
     model: str
     mode: str
@@ -237,6 +244,7 @@ class AssistantRuntimeOut(BaseModel):
     token_context_est: int = 0
     tools: list[AssistantToolCallOut] = Field(default_factory=list)
     prompt_preview: str | None = None
+    alignment: AssistantAlignmentOut | None = None
 
 
 class AssistantContextOut(BaseModel):
@@ -257,6 +265,29 @@ class AssistantQueryOut(BaseModel):
     citations: list[KnowledgeOut] = Field(default_factory=list)
     runtime: AssistantRuntimeOut | None = None
     context: AssistantContextOut | None = None
+    query_id: str | None = None
+
+
+class AssistantFeedbackIn(BaseModel):
+    query_id: str = Field(min_length=1, max_length=120)
+    helpful: bool
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class AssistantMissingTermOut(BaseModel):
+    term: str
+    count: int
+
+
+class AssistantMetricsOut(BaseModel):
+    total_queries: int = 0
+    average_alignment_score: int = 0
+    strong: int = 0
+    partial: int = 0
+    weak: int = 0
+    helpful: int = 0
+    not_helpful: int = 0
+    top_missing_terms: list[AssistantMissingTermOut] = Field(default_factory=list)
 
 
 class CompGardenDesignIn(BaseModel):

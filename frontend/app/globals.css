@@ -591,6 +591,8 @@ button.primary {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .health-dot {
   width: 9px;
@@ -672,6 +674,40 @@ button.primary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.quality-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.quality-miss-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.quality-miss-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: color-mix(in oklab, var(--panel) 86%, var(--surface-2));
+  font-size: 0.82rem;
+}
+
+.composer-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.composer-quick-actions button {
+  border-style: dashed;
 }
 
 .message-list {
@@ -854,6 +890,33 @@ button.primary {
 .composer-input-wrap {
   display: grid;
   gap: 6px;
+}
+
+.input-alignment-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.input-check-chip {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  color: var(--soft-ink);
+  background: color-mix(in oklab, var(--panel) 84%, var(--surface-2));
+}
+
+.input-check-chip.pass {
+  border-color: color-mix(in oklab, var(--accent) 38%, var(--line));
+  color: color-mix(in oklab, var(--accent) 76%, var(--ink));
+  background: color-mix(in oklab, var(--accent) 12%, var(--panel));
+}
+
+.input-check-chip.warn {
+  border-color: color-mix(in oklab, #f59e0b 46%, var(--line));
+  color: color-mix(in oklab, #92400e 70%, var(--ink));
+  background: color-mix(in oklab, #fef3c7 50%, var(--panel));
 }
 
 .composer-inner textarea {
@@ -1080,7 +1143,7 @@ button.primary {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  max-width: min(90%, 760px);
+  max-width: min(90%, 420px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -1093,7 +1156,35 @@ button.primary {
 
 .message-actions button {
   font-size: 0.72rem;
-  padding: 4px 7px;
+  padding: 4px 8px;
+}
+
+.alignment-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--panel) 85%, var(--surface-2));
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.alignment-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+}
+
+.alignment-row.strong {
+  border-color: color-mix(in oklab, var(--accent) 42%, var(--line));
+}
+
+.alignment-row.partial {
+  border-color: color-mix(in oklab, #f59e0b 45%, var(--line));
+}
+
+.alignment-row.weak {
+  border-color: color-mix(in oklab, #ef4444 45%, var(--line));
 }
 
 .more-wrap {
@@ -1500,6 +1591,15 @@ button.primary {
 
   .schedule-item {
     flex-direction: column;
+  }
+
+  .message-actions {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
+    max-width: 100%;
+    margin-top: 6px;
+    justify-content: flex-start;
   }
 }
 

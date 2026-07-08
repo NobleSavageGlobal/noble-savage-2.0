@@ -54,6 +54,13 @@ function buildFollowupSuggestions(content = "") {
   return ["Explain this simply", "Give me the counter-case", "Turn this into a checklist"];
 }
 
+function alignmentLabel(status = "") {
+  if (status === "strong") return "High alignment";
+  if (status === "partial") return "Partial alignment";
+  if (status === "weak") return "Weak alignment";
+  return "Alignment unknown";
+}
+
 function detectLanguageFromFilename(filename = "") {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
   const map = {
@@ -966,6 +973,19 @@ function MessageRow({
                 {message.runtime.model || "model"} · {message.runtime.token_output_est || 0} tokens · {message.runtime.latency_ms || 0}ms · {(message.citations || []).length} KB chunks cited
               </div>
             ) : null}
+            {!isUser && message.runtime?.alignment ? (
+              <div className={`alignment-row ${message.runtime.alignment.status || "unknown"}`}>
+                <div className="alignment-head">
+                  <strong>{alignmentLabel(message.runtime.alignment.status)}</strong>
+                  <span>{message.runtime.alignment.score || 0}%</span>
+                </div>
+                {message.runtime.alignment.missing_terms?.length ? (
+                  <p className="muted">Missing intent terms: {message.runtime.alignment.missing_terms.join(", ")}</p>
+                ) : (
+                  <p className="muted">Response covered the key intent terms from your prompt.</p>
+                )}
+              </div>
+            ) : null}
             {!isUser && message.runtime?.tools?.length ? (
               <div className="tool-call-row">
                 {message.runtime.tools.map((tool, idx) => (
@@ -996,19 +1016,19 @@ function MessageRow({
       <div className={`message-actions ${hovered ? "visible" : ""}`}>
         <button type="button" onClick={() => onCopy(message.content || "")}>Copy</button>
         {!isUser ? <button type="button" onClick={() => onRegenerate(index)}>Retry</button> : null}
-        {!isUser && message.runtime?.prompt_preview ? (
-          <button type="button" onClick={() => onViewPrompt(message.runtime.prompt_preview)}>View prompt</button>
-        ) : null}
-        {!isUser ? <button type="button" onClick={() => onTransform(index, "shorter")}>Make shorter</button> : null}
-        {!isUser ? <button type="button" onClick={() => onTransform(index, "deeper")}>Go deeper</button> : null}
-        {!isUser ? <button type="button" onClick={() => onTransform(index, "table")}>Format as table</button> : null}
         {isUser ? <button type="button" onClick={() => setEditing(true)}>Edit</button> : null}
-        <button type="button" onClick={() => onThumb(index, "up")}>👍</button>
-        <button type="button" onClick={() => onThumb(index, "down")}>👎</button>
+        {!isUser ? <button type="button" onClick={() => onThumb(index, "up", "alignment matched intent")}>Aligned</button> : null}
+        {!isUser ? <button type="button" onClick={() => onThumb(index, "down", "response off target")}>Off-target</button> : null}
         <div className="more-wrap">
           <button type="button" onClick={() => setMoreOpen((v) => !v)}>⋯</button>
           {moreOpen ? (
             <div className="more-menu">
+              {!isUser && message.runtime?.prompt_preview ? (
+                <button type="button" onClick={() => { onViewPrompt(message.runtime.prompt_preview); setMoreOpen(false); }}>View prompt</button>
+              ) : null}
+              {!isUser ? <button type="button" onClick={() => { onTransform(index, "shorter"); setMoreOpen(false); }}>Make shorter</button> : null}
+              {!isUser ? <button type="button" onClick={() => { onTransform(index, "deeper"); setMoreOpen(false); }}>Go deeper</button> : null}
+              {!isUser ? <button type="button" onClick={() => { onTransform(index, "table"); setMoreOpen(false); }}>Format as table</button> : null}
               <button type="button" onClick={() => { onMoreAction(index, "pin"); setMoreOpen(false); }}>
                 {message.pinned ? "Unpin" : "Pin"}
               </button>

@@ -48,6 +48,9 @@ from .domain_intelligence import analyze_document, intelligence_brief_markdown
 from .onboarding import handle_turn
 from .knowledge_ingest import build_knowledge_payloads, parse_document
 from .schemas import (
+    AssistantFeedbackIn,
+    AssistantMetricsOut,
+    AssistantMissingTermOut,
     AssistantQueryIn,
     AssistantQueryOut,
     AssistantRuntimeOut,
@@ -92,6 +95,7 @@ from .store import (
     get_decision_weekly_summary,
     get_decision_trend,
     get_onboarding,
+    get_assistant_metrics,
     init_db,
     list_signals,
     list_tasks,
@@ -103,6 +107,8 @@ from .store import (
     save_onboarding,
     search_knowledge,
     reembed_knowledge_file,
+    create_assistant_log,
+    update_assistant_feedback,
     update_knowledge_embedding,
 )
 
@@ -275,6 +281,46 @@ def _build_calendar_sample(question: str) -> str:
         "- 3:00 PM - Focus block #2 for strategic work (75 min)\n"
         "- 4:30 PM - End-of-day ledger update and tomorrow prep (20 min)\n"
     )
+
+
+def _extract_intent_terms(text: str) -> list[str]:
+    stop_words = {
+        "the", "and", "for", "with", "this", "that", "from", "into", "your", "you", "are", "what", "when", "where", "why", "how", "can", "will", "should", "would", "could", "about", "have", "has", "had", "was", "were", "not", "but", "use", "make", "show", "give", "then", "than", "also", "just", "very", "more", "most", "onto", "over", "under", "today", "week",
+    }
+    tokens = re.sub(r"[^a-z0-9\s]", " ", (text or "").lower()).split()
+    output: list[str] = []
+    for token in tokens:
+        token = token.strip()
+        if len(token) < 4 or token in stop_words:
+            continue
+        if token not in output:
+            output.append(token)
+        if len(output) >= 14:
+            break
+    return output
+
+
+def _evaluate_response_alignment(question: str, answer: str) -> dict[str, Any]:
+    query_terms = _extract_intent_terms(question)
+    answer_lower = (answer or "").lower()
+    matched_terms = [term for term in query_terms if term in answer_lower]
+    missing_terms = [term for term in query_terms if term not in answer_lower]
+    coverage = (len(matched_terms) / len(query_terms)) if query_terms else 1.0
+    has_action_structure = bool(re.search(r"\b(immediate action|next action|action steps|direct solution)\b", answer_lower))
+    score = round(min(100, (coverage * 70) + (30 if has_action_structure else 10)))
+
+    status = "strong"
+    if score < 75:
+        status = "partial"
+    if score < 55:
+        status = "weak"
+
+    return {
+        "score": int(score),
+        "status": status,
+        "matched_terms": matched_terms,
+        "missing_terms": missing_terms[:5],
+    }
 
 
 @app.get("/health", response_model=MessageOut)
@@ -500,6 +546,9 @@ async def assistant_query(
         answer = completion
         runtime = {}
 
+    alignment = _evaluate_response_alignment(payload.question, answer)
+    runtime["alignment"] = alignment
+
     knowledge_files = list(
         dict.fromkeys([
             c.get("title", "") for c in citations if c.get("title")
@@ -512,11 +561,59 @@ async def assistant_query(
         tools_runtime.append({"name": "Calendar", "summary": "generated schedule sample", "count": 7})
         runtime["tools"] = tools_runtime
 
+    query_log = create_assistant_log(
+        user["id"],
+        {
+            "question": payload.question,
+            "answer": answer,
+            "mode": payload.mode or runtime.get("mode") or "general",
+            "model": runtime.get("model") or payload.model,
+            "latency_ms": runtime.get("latency_ms") or 0,
+            "citations_count": len(citations),
+            "alignment_score": alignment["score"],
+            "alignment_status": alignment["status"],
+            "missing_terms": alignment["missing_terms"],
+            "tools": runtime.get("tools") or [],
+        },
+    )
+
     return AssistantQueryOut(
         answer=answer,
         citations=[KnowledgeOut(**c) for c in citations],
         runtime=AssistantRuntimeOut(**runtime) if runtime else None,
         context=AssistantContextOut(citations_used=len(citations), knowledge_files=knowledge_files),
+        query_id=query_log["id"],
+    )
+
+
+@app.post("/api/assistant/feedback", response_model=MessageOut)
+async def assistant_feedback(
+    payload: AssistantFeedbackIn,
+    user: dict[str, Any] = Depends(current_user),
+) -> MessageOut:
+    updated = update_assistant_feedback(
+        user["id"],
+        payload.query_id,
+        payload.helpful,
+        payload.note,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Assistant query log not found")
+    return MessageOut(message="assistant feedback recorded")
+
+
+@app.get("/api/assistant/metrics", response_model=AssistantMetricsOut)
+async def assistant_metrics(user: dict[str, Any] = Depends(current_user)) -> AssistantMetricsOut:
+    metrics = get_assistant_metrics(user["id"], limit=300)
+    return AssistantMetricsOut(
+        total_queries=metrics["total_queries"],
+        average_alignment_score=metrics["average_alignment_score"],
+        strong=metrics["strong"],
+        partial=metrics["partial"],
+        weak=metrics["weak"],
+        helpful=metrics["helpful"],
+        not_helpful=metrics["not_helpful"],
+        top_missing_terms=[AssistantMissingTermOut(**item) for item in metrics["top_missing_terms"]],
     )
 
 

@@ -13,9 +13,11 @@ const STARTER_PROMPTS = [
   "Map my highest-leverage move for today and what it unblocks.",
   "Turn my scattered priorities into a hard-first execution sequence.",
   "Draft a concise morning brief from my current board state.",
+  "Create a practical calendar for today and sequence execution blocks.",
 ];
 const USE_CASE_CHIPS = [
   "Daily brief",
+  "Calendar plan",
   "Decision memo",
   "Board audit",
   "Risk review",
@@ -24,6 +26,7 @@ const USE_CASE_CHIPS = [
 ];
 const PLACEHOLDER_EXAMPLES = [
   "Ask: What is my one highest-leverage move right now?",
+  "Ask: Build my calendar for today and convert it into immediate actions.",
   "Paste a client brief and ask for an execution plan.",
   "Drop files or links to build a project-ready synthesis.",
 ];
@@ -229,6 +232,103 @@ function buildInstructionPrefix(project) {
   return directives.length ? `[Project context]\n${directives.join("\n")}\n[/Project context]\n\n` : "";
 }
 
+function extractIntentTerms(text = "") {
+  const stopWords = new Set([
+    "the", "and", "for", "with", "this", "that", "from", "into", "your", "you", "are", "what", "when", "where", "why", "how", "can", "will", "should", "would", "could", "about", "have", "has", "had", "was", "were", "not", "but", "use", "make", "show", "give", "then", "than", "also", "just", "very", "more", "most", "into", "onto", "over", "under", "today", "week",
+  ]);
+  return [...new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 4 && !stopWords.has(token)),
+  )].slice(0, 14);
+}
+
+function evaluateInputReadiness(text = "", attachedCount = 0, toolCount = 0, scopedKnowledgeCount = 0) {
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  const hasOutcomeVerb = /\b(build|draft|plan|create|audit|fix|review|prioritize|summarize|explain|map|design)\b/i.test(text);
+  const hasConstraint = /\b(today|this week|deadline|budget|time|priority|risk|must|avoid|limit|constraint)\b/i.test(text);
+  const hasContext = attachedCount > 0 || scopedKnowledgeCount > 0;
+  const toolCoverage = toolCount >= 2;
+
+  return [
+    {
+      key: "intent",
+      label: wordCount >= 8 ? "Intent is specific" : "Intent is vague",
+      pass: wordCount >= 8,
+    },
+    {
+      key: "outcome",
+      label: hasOutcomeVerb ? "Outcome requested" : "Outcome not explicit",
+      pass: hasOutcomeVerb,
+    },
+    {
+      key: "constraints",
+      label: hasConstraint ? "Constraints included" : "No constraints",
+      pass: hasConstraint,
+    },
+    {
+      key: "context",
+      label: hasContext ? "Context attached" : "No context attached",
+      pass: hasContext,
+    },
+    {
+      key: "tools",
+      label: toolCoverage ? "Tooling ready" : "Tooling narrow",
+      pass: toolCoverage,
+    },
+  ];
+}
+
+function evaluateResponseAlignment(question = "", answer = "") {
+  const queryTerms = extractIntentTerms(question);
+  const answerLower = answer.toLowerCase();
+  const matchedTerms = queryTerms.filter((term) => answerLower.includes(term));
+  const missingTerms = queryTerms.filter((term) => !answerLower.includes(term));
+  const coverage = queryTerms.length ? matchedTerms.length / queryTerms.length : 1;
+  const hasActionStructure = /\b(immediate action|next action|action steps|direct solution)\b/i.test(answer);
+  const score = Math.round(Math.min(100, (coverage * 70) + (hasActionStructure ? 30 : 10)));
+
+  let status = "strong";
+  if (score < 75) status = "partial";
+  if (score < 55) status = "weak";
+
+  return {
+    score,
+    status,
+    matched_terms: matchedTerms,
+    missing_terms: missingTerms.slice(0, 5),
+  };
+}
+
+function strengthenPromptDraft(text = "", readiness = []) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "Goal: [state the outcome]\nContext: [relevant facts or file references]\nConstraints: [time, budget, risk, quality bar]\nOutput format: [bullets/table/checklist]\nAction: Give me the direct solution and 3 immediate next actions.";
+  }
+
+  const missing = new Set(readiness.filter((item) => !item.pass).map((item) => item.key));
+  const sections = [];
+  sections.push(`Goal: ${trimmed}`);
+
+  if (missing.has("context")) {
+    sections.push("Context: Use my current thread, active files, and latest board state. If critical context is missing, ask one sharp question.");
+  }
+  if (missing.has("constraints")) {
+    sections.push("Constraints: Optimize for speed and decision quality today. Keep it practical and execution-first.");
+  }
+
+  sections.push("Output format: Direct answer, Immediate actions, Risks, Confidence.");
+
+  if (missing.has("outcome") || missing.has("intent")) {
+    sections.push("Action: Convert this into a concrete plan that I can execute in the next 60 minutes.");
+  }
+
+  return sections.join("\n");
+}
+
 export default function Home() {
   const [token, setToken] = useState("");
   const [mode, setMode] = useState("login");
@@ -263,6 +363,7 @@ export default function Home() {
   const [activePersona, setActivePersona] = useState("sovereignty");
   const [health, setHealth] = useState({ status: "unknown", degraded: false, checkedAt: 0 });
   const [activityLog, setActivityLog] = useState([]);
+  const [assistantMetrics, setAssistantMetrics] = useState(null);
   const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState([]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [theme, setTheme] = useState("light");
@@ -374,12 +475,50 @@ export default function Home() {
     };
   }, [token]);
 
+  const loadAssistantMetrics = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/assistant/metrics`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (res.status === 401) {
+        logout("Your session expired. Please sign in again.");
+        return;
+      }
+      if (!res.ok) return;
+      const body = await res.json();
+      setAssistantMetrics(body);
+    } catch {
+      // Keep UI responsive if metrics service is unavailable.
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadAssistantMetrics();
+  }, [loadAssistantMetrics]);
+
   function toggleToolChip(toolId) {
     setActiveTools((current) => (
       current.includes(toolId)
         ? current.filter((item) => item !== toolId)
         : [...current, toolId]
     ));
+  }
+
+  function applyCalendarQuickAction(period = "today") {
+    const prompts = {
+      today: "Create a practical calendar for today with deep-work blocks, admin windows, and a clear end-of-day review.",
+      week: "Create a weekly operating calendar with priority blocks, outreach windows, and review checkpoints.",
+      next: "Convert my current priorities into the next 3 calendar events and explain why this order is best.",
+    };
+    const nextPrompt = prompts[period] || prompts.today;
+    setMainView("conversation");
+    setComposerText(nextPrompt);
+    setActiveTools((current) => (current.includes("calendar") ? current : [...current, "calendar"]));
+    setLastInteractionAt(Date.now());
+    window.setTimeout(() => textareaRef.current?.focus(), 40);
+    appendActivity("Calendar quick action", period);
   }
 
   function moveToolPriority(toolId, direction) {
@@ -671,6 +810,50 @@ export default function Home() {
   const indexedKnowledgeFiles = workspaceFiles.filter((file) => file.status === "indexed");
   const includedKnowledgeFiles = indexedKnowledgeFiles.filter((file) => file.includeInContext !== false);
   const scopedKnowledgeFileIds = includedKnowledgeFiles.map((file) => file.backendFileId).filter(Boolean);
+  const inputReadiness = evaluateInputReadiness(
+    composerText,
+    files.length,
+    activeTools.length,
+    scopedKnowledgeFileIds.length,
+  );
+  const readinessPassCount = inputReadiness.filter((item) => item.pass).length;
+  const readinessNeedsHelp = readinessPassCount < inputReadiness.length;
+  const assistantQualityStats = (activeMessages || [])
+    .filter((msg) => msg.role === "assistant" && msg.runtime?.alignment)
+    .reduce((acc, msg) => {
+      const status = msg.runtime.alignment.status || "unknown";
+      const score = Number(msg.runtime.alignment.score || 0);
+      acc.total += 1;
+      acc.sumScore += score;
+      if (status === "strong") acc.strong += 1;
+      if (status === "partial") acc.partial += 1;
+      if (status === "weak") acc.weak += 1;
+      (msg.runtime.alignment.missing_terms || []).forEach((term) => {
+        acc.missingMap.set(term, (acc.missingMap.get(term) || 0) + 1);
+      });
+      return acc;
+    }, {
+      total: 0,
+      sumScore: 0,
+      strong: 0,
+      partial: 0,
+      weak: 0,
+      missingMap: new Map(),
+    });
+  const assistantAverageAlignment = assistantQualityStats.total
+    ? Math.round(assistantQualityStats.sumScore / assistantQualityStats.total)
+    : 0;
+  const topMissingTerms = [...assistantQualityStats.missingMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  function applyPromptStrengthener() {
+    const nextPrompt = strengthenPromptDraft(composerText, inputReadiness);
+    setComposerText(nextPrompt);
+    setLastInteractionAt(Date.now());
+    appendActivity("Prompt strengthened", `${readinessPassCount}/${inputReadiness.length} checks passed before rewrite`);
+    window.setTimeout(() => textareaRef.current?.focus(), 40);
+  }
 
   useEffect(() => {
     const changed = workspaceFiles.some((file) => file.status === "indexed" || file.status === "failed");
@@ -861,7 +1044,7 @@ export default function Home() {
     setSendLoading(false);
   }
 
-  async function streamIntoMessage(threadId, messageId, text, citations, runtime) {
+  async function streamIntoMessage(threadId, messageId, text, citations, runtime, queryId = "") {
     const tokens = text.match(/\S+\s*/g) || [text];
     const total = tokens.length;
     let cursor = 0;
@@ -879,6 +1062,7 @@ export default function Home() {
                 content: chunk,
                 citations,
                 runtime: runtime || message.runtime,
+                queryId: queryId || message.queryId,
                 failed: false,
                 streaming: cursor < total,
                 ts: Date.now(),
@@ -929,9 +1113,14 @@ export default function Home() {
     const body = await res.json().catch(() => ({}));
     const output = body.answer || body.detail || "No response returned.";
     const citations = body.citations || [];
-    const runtime = body.runtime || null;
-    await streamIntoMessage(threadId, assistantMessageId, output, citations, runtime);
+    const queryId = body.query_id || "";
+    const runtime = body.runtime || {};
+    if (!runtime.alignment) {
+      runtime.alignment = evaluateResponseAlignment(question, output);
+    }
+    await streamIntoMessage(threadId, assistantMessageId, output, citations, runtime, queryId);
     appendActivity("Assistant response", `${(runtime?.latency_ms || 0)}ms · ${(citations || []).length} citations`);
+    loadAssistantMetrics();
 
     if (!res.ok) {
       setComposerError(await readErrorMessage(res, "Assistant could not respond right now. Please retry."));
@@ -958,6 +1147,7 @@ export default function Home() {
       citations: [],
       failed: false,
       runtime: null,
+      queryId: "",
       streaming: true,
       ts: Date.now(),
     };
@@ -1054,6 +1244,25 @@ export default function Home() {
       ts: Date.now(),
     };
 
+    const originalUserText = activeThread.messages[messageIndex]?.content || "";
+
+    try {
+      await fetch(`${API_BASE}/api/signals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          kind: "edit",
+          target: activeThread.messages[messageIndex]?.id || "unknown",
+          before: originalUserText,
+          after: nextText.trim(),
+          agent: "assistant-ui",
+          notes: "user edited prompt before regeneration",
+        }),
+      });
+    } catch {
+      // Keep edit/regenerate interaction non-blocking.
+    }
+
     updateThreadById(threadId, (thread) => {
       const trimmed = thread.messages.slice(0, messageIndex + 1).map((msg, idx) => (
         idx === messageIndex ? { ...msg, content: nextText.trim(), ts: Date.now() } : msg
@@ -1084,7 +1293,7 @@ export default function Home() {
     }
   }
 
-  async function handleMessageThumb(messageIndex, direction) {
+  async function handleMessageThumb(messageIndex, direction, detailNote = "") {
     if (!activeThread) return;
     const msg = activeThread.messages[messageIndex];
     if (!msg) return;
@@ -1097,6 +1306,18 @@ export default function Home() {
     }));
 
     try {
+      if (msg.queryId) {
+        await fetch(`${API_BASE}/api/assistant/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            query_id: msg.queryId,
+            helpful: direction === "up",
+            note: detailNote || null,
+          }),
+        });
+      }
+
       await fetch(`${API_BASE}/api/signals`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -1104,9 +1325,10 @@ export default function Home() {
           kind: direction === "up" ? "accept" : "dismiss",
           target: msg.id,
           agent: "assistant-ui",
-          notes: `message feedback: ${direction}`,
+          notes: `message feedback: ${direction}${detailNote ? ` | ${detailNote}` : ""}`,
         }),
       });
+      loadAssistantMetrics();
     } catch {
       // Keep interaction non-blocking even if analytics write fails.
     }
@@ -2054,8 +2276,8 @@ export default function Home() {
               </section>
             ) : !activeMessages.length ? (
               <section className="empty-state">
-                <h2>Start with intent.</h2>
-                <p className="notice">Choose a starter prompt or use-case chip to open this thread with momentum.</p>
+                <h2>Start with one clear command.</h2>
+                <p className="notice">Your assistant response will appear in this conversation stream. Pick a starter, then send.</p>
                 <div className="starter-grid">
                   {STARTER_PROMPTS.map((prompt) => (
                     <button key={prompt} type="button" className="starter-card" onClick={() => applyStarterPrompt(prompt)}>
@@ -2171,6 +2393,12 @@ export default function Home() {
               <button type="button" className="chip" onClick={() => setRailTab("activity")}>tokens {Math.min(8000, (composerText.split(/\s+/).filter(Boolean).length * 2) + knowledgeStats.tokens)}/8000</button>
             </div>
 
+            <div className="composer-quick-actions" aria-label="Calendar quick actions">
+              <button type="button" className="ghost" onClick={() => applyCalendarQuickAction("today")}>Calendar today</button>
+              <button type="button" className="ghost" onClick={() => applyCalendarQuickAction("week")}>Plan this week</button>
+              <button type="button" className="ghost" onClick={() => applyCalendarQuickAction("next")}>Next 3 events</button>
+            </div>
+
             <div className="tool-chip-row" aria-label="Tool toggles">
               {TOOL_OPTIONS.map((tool) => (
                 <button
@@ -2187,6 +2415,17 @@ export default function Home() {
 
             <div className="composer-grid">
               <div className="composer-input-wrap">
+                <div className="input-alignment-panel" aria-label="Input readiness checks">
+                  {inputReadiness.map((item) => (
+                    <span
+                      key={item.key}
+                      className={`input-check-chip ${item.pass ? "pass" : "warn"}`}
+                      title={item.label}
+                    >
+                      {item.pass ? "OK" : "Needs"} {item.label}
+                    </span>
+                  ))}
+                </div>
                 <textarea
                   ref={textareaRef}
                   value={composerText}
@@ -2210,6 +2449,9 @@ export default function Home() {
                 <div className="composer-under">
                   {composerFocused ? <span className="hint">Cmd/Ctrl+Enter sends. Shift+Enter adds a new line.</span> : <span />}
                   <div className="controls">
+                    {readinessNeedsHelp ? (
+                      <button type="button" className="ghost" onClick={applyPromptStrengthener}>Strengthen prompt</button>
+                    ) : null}
                     <select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)} aria-label="Upload type filter">
                       <option value="documents">Documents</option>
                       <option value="images">Images</option>
@@ -2263,6 +2505,7 @@ export default function Home() {
             ["knowledge", "Knowledge"],
             ["tools", "Tools"],
             ["persona", "Persona"],
+            ["quality", "Quality"],
             ["activity", "Activity"],
             ["artifact", "Artifact"],
             ["sources", "Sources"],
@@ -2392,6 +2635,47 @@ export default function Home() {
                   ))}
                 </div>
               </label>
+            </section>
+          ) : null}
+
+          {railTab === "quality" ? (
+            <section className="rail-section">
+              <article className="rail-card">
+                <strong>Input readiness</strong>
+                <p className="muted">{readinessPassCount}/{inputReadiness.length} checks passing</p>
+                <div className="quality-chip-row">
+                  {inputReadiness.map((item) => (
+                    <span key={`quality-${item.key}`} className={`input-check-chip ${item.pass ? "pass" : "warn"}`}>
+                      {item.pass ? "OK" : "Needs"} {item.label}
+                    </span>
+                  ))}
+                </div>
+                {readinessNeedsHelp ? (
+                  <button type="button" className="primary" onClick={applyPromptStrengthener}>Strengthen draft prompt</button>
+                ) : null}
+              </article>
+
+              <article className="rail-card">
+                <strong>Response alignment</strong>
+                <p className="muted">Average score: {assistantAverageAlignment}% across {assistantQualityStats.total} assistant replies</p>
+                <p className="muted">Strong: {assistantQualityStats.strong} · Partial: {assistantQualityStats.partial} · Weak: {assistantQualityStats.weak}</p>
+              </article>
+
+              <article className="rail-card">
+                <strong>Top missed intent terms</strong>
+                {topMissingTerms.length ? (
+                  <div className="quality-miss-list">
+                    {topMissingTerms.map(([term, count]) => (
+                      <div key={`miss-${term}`} className="quality-miss-item">
+                        <span>{term}</span>
+                        <span>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">No recurring misses yet. Keep sending prompts to build signal.</p>
+                )}
+              </article>
             </section>
           ) : null}
 
