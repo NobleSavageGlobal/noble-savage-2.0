@@ -19,6 +19,11 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 SITE_URL = os.getenv("OPENROUTER_SITE_URL", "http://localhost:3000")
 SITE_NAME = os.getenv("OPENROUTER_SITE_NAME", "Noble Savage OS")
+MODEL_ALIASES = {
+    "sonnet": "anthropic/claude-3.5-sonnet",
+    "haiku": "anthropic/claude-3.5-haiku",
+    "opus": "anthropic/claude-3-opus",
+}
 
 
 ASSISTANT_OPERATING_CONTRACT = """
@@ -112,6 +117,13 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text.split()))
 
 
+def _resolve_model(model: str | None) -> str:
+    if not model:
+        return OPENROUTER_MODEL
+    normalized = model.strip().lower()
+    return MODEL_ALIASES.get(normalized, model)
+
+
 def build_context(citations: list[dict[str, Any]]) -> str:
     if not citations:
         return "No knowledge entries were found. Ask a clarifying question and suggest ingesting source material."
@@ -155,7 +167,7 @@ async def query_openrouter(
     model: str | None = None,
     include_runtime: bool = False,
 ) -> str | dict[str, Any]:
-    requested_model = model or OPENROUTER_MODEL
+    requested_model = _resolve_model(model)
 
     context = build_context(citations)
     live_context = build_operational_context(operational_context)

@@ -3,6 +3,7 @@ from datetime import date
 from datetime import datetime, timezone
 import logging
 import os
+import re
 import time
 from collections import defaultdict, deque
 from typing import Any
@@ -256,6 +257,26 @@ def _build_operational_snapshot(user_id: str) -> str:
     return "\n".join(lines)
 
 
+def _calendar_requested(question: str, tools: list[str] | None) -> bool:
+    if "calendar" not in {tool.lower() for tool in (tools or [])}:
+        return False
+    return bool(re.search(r"\b(calendar|schedule|timeline|plan my day|week plan)\b", question.lower()))
+
+
+def _build_calendar_sample(question: str) -> str:
+    _ = question
+    return (
+        "## Today's schedule\n"
+        "- 8:00 AM - Review priorities and blockers (15 min)\n"
+        "- 8:30 AM - Deep work on highest-leverage task (90 min)\n"
+        "- 10:15 AM - Communication block: responses and follow-ups (30 min)\n"
+        "- 11:00 AM - Execution sprint: ship one concrete deliverable (90 min)\n"
+        "- 1:30 PM - Operations check: tasks, due dates, dependencies (30 min)\n"
+        "- 3:00 PM - Focus block #2 for strategic work (75 min)\n"
+        "- 4:30 PM - End-of-day ledger update and tomorrow prep (20 min)\n"
+    )
+
+
 @app.get("/health", response_model=MessageOut)
 async def health() -> MessageOut:
     return MessageOut(message="ok")
@@ -452,6 +473,7 @@ async def reindex_knowledge_file(file_id: str, user: dict[str, Any] = Depends(cu
 async def assistant_query(
     payload: AssistantQueryIn, user: dict[str, Any] = Depends(current_user)
 ) -> AssistantQueryOut:
+    calendar_requested = _calendar_requested(payload.question, payload.tools)
     citations = search_knowledge(
         user["id"],
         payload.question,
@@ -483,6 +505,12 @@ async def assistant_query(
             c.get("title", "") for c in citations if c.get("title")
         ])
     )
+
+    if calendar_requested:
+        answer = f"{answer}\n\n{_build_calendar_sample(payload.question)}".strip()
+        tools_runtime = runtime.get("tools") or []
+        tools_runtime.append({"name": "Calendar", "summary": "generated schedule sample", "count": 7})
+        runtime["tools"] = tools_runtime
 
     return AssistantQueryOut(
         answer=answer,

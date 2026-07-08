@@ -934,7 +934,7 @@ export default function Home() {
     appendActivity("Assistant response", `${(runtime?.latency_ms || 0)}ms · ${(citations || []).length} citations`);
 
     if (!res.ok) {
-      setComposerError(await readErrorMessage(res, "Assistant request failed."));
+      setComposerError(await readErrorMessage(res, "Assistant could not respond right now. Please retry."));
     }
   }
 
@@ -969,6 +969,7 @@ export default function Home() {
       attachments: [],
       updatedAt: Date.now(),
     }));
+    setMainView("conversation");
     markFilesUsedInThread(attachedIds, threadId);
     setComposerText("");
     setComposerError("");
@@ -988,7 +989,7 @@ export default function Home() {
           message.id === assistantMessage.id
             ? {
               ...message,
-              content: "Message failed to send. Retry when connection is stable.",
+              content: "Assistant could not respond yet. Retry now or check model and health status.",
               failed: true,
               streaming: false,
             }
@@ -996,7 +997,7 @@ export default function Home() {
         )),
         updatedAt: Date.now(),
       }));
-      setComposerError("Unable to connect to assistant service.");
+      setComposerError("Assistant could not respond. Retry, or switch model if this continues.");
       appendActivity("Send failed", "Assistant request failed due to network/service error.");
     } finally {
       generationAbortRef.current = null;
