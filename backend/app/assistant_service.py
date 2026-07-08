@@ -124,6 +124,17 @@ def _resolve_model(model: str | None) -> str:
     return MODEL_ALIASES.get(normalized, model)
 
 
+def _is_retryable_model_error(status_code: int, body_text: str) -> bool:
+    if status_code not in {400, 404}:
+        return False
+    text = (body_text or "").lower()
+    return (
+        "not a valid model" in text
+        or "no endpoints found" in text
+        or "model" in text and "not found" in text
+    )
+
+
 def build_context(citations: list[dict[str, Any]]) -> str:
     if not citations:
         return "No knowledge entries were found. Ask a clarifying question and suggest ingesting source material."
@@ -249,6 +260,12 @@ async def query_openrouter(
     started = time.perf_counter()
     async with httpx.AsyncClient(timeout=60) as client:
         res = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+
+        if res.status_code >= 400 and requested_model != OPENROUTER_MODEL and _is_retryable_model_error(res.status_code, res.text):
+            # User-selected model may be unavailable for the current OpenRouter account.
+            payload["model"] = OPENROUTER_MODEL
+            res = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+
     latency_ms = int((time.perf_counter() - started) * 1000)
 
     if res.status_code >= 400:
