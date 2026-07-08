@@ -843,6 +843,7 @@ function MessageRow({
   onCreateArtifact,
   onSourceOpen,
   onFollowup = () => {},
+  onViewPrompt = () => {},
 }) {
   const [hovered, setHovered] = useState(false);
   const [showFullDate, setShowFullDate] = useState(false);
@@ -905,6 +906,13 @@ function MessageRow({
           {hovered ? <span className="msg-time">{showFullDate ? fullTs : shortTs}</span> : null}
         </div>
 
+        {!isUser && message.failed ? (
+          <div className="send-failed-row" role="alert">
+            <span>⚠ Message failed to send</span>
+            <button type="button" onClick={() => onRegenerate(index)}>Retry</button>
+          </div>
+        ) : null}
+
         {editing && isUser ? (
           <div className="edit-wrap">
             <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={4} />
@@ -953,6 +961,20 @@ function MessageRow({
               </div>
             ) : null}
             <CitationSuperscripts citations={message.citations || []} onSourceOpen={onSourceOpen} />
+            {!isUser && message.runtime ? (
+              <div className="message-runtime-row muted">
+                {message.runtime.model || "model"} · {message.runtime.token_output_est || 0} tokens · {message.runtime.latency_ms || 0}ms · {(message.citations || []).length} KB chunks cited
+              </div>
+            ) : null}
+            {!isUser && message.runtime?.tools?.length ? (
+              <div className="tool-call-row">
+                {message.runtime.tools.map((tool, idx) => (
+                  <div key={`${message.id}-tool-${idx}`} className="tool-call-item">
+                    🔧 Called: {tool.name} → {tool.summary}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {!isUser && !message.streaming ? (
               <div className="followup-row" aria-label="Follow-up suggestions">
                 {buildFollowupSuggestions(message.content || "").slice(0, 3).map((suggestion) => (
@@ -974,6 +996,9 @@ function MessageRow({
       <div className={`message-actions ${hovered ? "visible" : ""}`}>
         <button type="button" onClick={() => onCopy(message.content || "")}>Copy</button>
         {!isUser ? <button type="button" onClick={() => onRegenerate(index)}>Retry</button> : null}
+        {!isUser && message.runtime?.prompt_preview ? (
+          <button type="button" onClick={() => onViewPrompt(message.runtime.prompt_preview)}>View prompt</button>
+        ) : null}
         {!isUser ? <button type="button" onClick={() => onTransform(index, "shorter")}>Make shorter</button> : null}
         {!isUser ? <button type="button" onClick={() => onTransform(index, "deeper")}>Go deeper</button> : null}
         {!isUser ? <button type="button" onClick={() => onTransform(index, "table")}>Format as table</button> : null}
@@ -1023,6 +1048,7 @@ export default function MessageRenderer({
   onCreateArtifact = () => {},
   onSourceOpen = () => {},
   onFollowup = () => {},
+  onViewPrompt = () => {},
   isStreaming,
   scrollHostRef,
 }) {
@@ -1116,6 +1142,7 @@ export default function MessageRenderer({
                     onCreateArtifact={onCreateArtifact}
                     onSourceOpen={onSourceOpen}
                     onFollowup={onFollowup}
+                    onViewPrompt={onViewPrompt}
                   />
                 </div>
               ))}
@@ -1142,6 +1169,7 @@ export default function MessageRenderer({
               onCreateArtifact={onCreateArtifact}
               onSourceOpen={onSourceOpen}
               onFollowup={onFollowup}
+              onViewPrompt={onViewPrompt}
             />
           ))}
         </div>

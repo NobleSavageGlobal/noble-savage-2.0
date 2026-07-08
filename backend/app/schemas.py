@@ -213,17 +213,50 @@ class KnowledgeOut(BaseModel):
     content: str
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
+    file_id: str | None = None
+    chunk_index: int | None = None
+    chunk_total: int | None = None
+    token_count: int = 0
+    status: Literal["uploading", "parsing", "chunking", "embedding", "indexed", "failed"] = "indexed"
+    last_indexed_at: datetime | None = None
     created_at: datetime
+
+
+class AssistantToolCallOut(BaseModel):
+    name: str
+    summary: str
+    count: int | None = None
+
+
+class AssistantRuntimeOut(BaseModel):
+    model: str
+    mode: str
+    latency_ms: int
+    token_input_est: int = 0
+    token_output_est: int = 0
+    token_context_est: int = 0
+    tools: list[AssistantToolCallOut] = Field(default_factory=list)
+    prompt_preview: str | None = None
+
+
+class AssistantContextOut(BaseModel):
+    citations_used: int = 0
+    knowledge_files: list[str] = Field(default_factory=list)
 
 
 class AssistantQueryIn(BaseModel):
     question: str = Field(min_length=1)
+    model: str | None = None
+    tools: list[str] = Field(default_factory=list)
+    knowledge_file_ids: list[str] = Field(default_factory=list)
     mode: Literal["general", "credit", "tax", "accounting", "budget", "life_plan"] | None = None
 
 
 class AssistantQueryOut(BaseModel):
     answer: str
     citations: list[KnowledgeOut] = Field(default_factory=list)
+    runtime: AssistantRuntimeOut | None = None
+    context: AssistantContextOut | None = None
 
 
 class CompGardenDesignIn(BaseModel):

@@ -37,6 +37,24 @@ const FILE_ACCEPT = {
   data: ".csv,.tsv,.xlsx,.xls,.parquet,.json",
 };
 
+const TOOL_OPTIONS = [
+  { id: "search", label: "Search", description: "Grounded web lookup" },
+  { id: "code", label: "Code", description: "Sandboxed code reasoning" },
+  { id: "files", label: "Files", description: "Knowledge and file retrieval" },
+  { id: "calc", label: "Calc", description: "Math and financial formulas" },
+  { id: "calendar", label: "Calendar", description: "Schedule integration" },
+  { id: "email", label: "Email", description: "Draft and compose" },
+];
+
+const PERSONAS = [
+  { id: "sovereignty", label: "Sovereignty", mode: "life_plan", description: "Multi-domain strategic advisory" },
+  { id: "credit", label: "Credit Counsel", mode: "credit", description: "FCRA/FDCPA workflows" },
+  { id: "tax", label: "Tax Strategist", mode: "tax", description: "IRC and filing posture" },
+  { id: "accounting", label: "Accountant", mode: "accounting", description: "GAAP and controls" },
+  { id: "budget", label: "Budget Operator", mode: "budget", description: "Cash flow and debt payoff" },
+  { id: "general", label: "General", mode: "general", description: "General assistant mode" },
+];
+
 const DEFAULT_PROJECTS = [
   {
     id: "project-personal-os",
@@ -241,7 +259,11 @@ export default function Home() {
   const [lastInteractionAt, setLastInteractionAt] = useState(Date.now());
   const [dragOverComposer, setDragOverComposer] = useState(false);
   const [dragAttachmentId, setDragAttachmentId] = useState("");
-  const [activeTool, setActiveTool] = useState("search");
+  const [activeTools, setActiveTools] = useState(["search", "code", "files"]);
+  const [activePersona, setActivePersona] = useState("sovereignty");
+  const [health, setHealth] = useState({ status: "unknown", degraded: false, checkedAt: 0 });
+  const [activityLog, setActivityLog] = useState([]);
+  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState([]);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [theme, setTheme] = useState("light");
   const [densityMode, setDensityMode] = useState("comfortable");
@@ -257,9 +279,9 @@ export default function Home() {
     older: false,
     archived: false,
   });
-  const [railTab, setRailTab] = useState("artifact");
+  const [railTab, setRailTab] = useState("knowledge");
   const [railPinned, setRailPinned] = useState(false);
-  const [railOpen, setRailOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
   const [onboardingSeen, setOnboardingSeen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
@@ -315,6 +337,73 @@ export default function Home() {
   const activeProject = projects.find((project) => project.id === activeProjectId) || projects[0] || null;
   const projectThreads = threads.filter((thread) => thread.projectId === activeProjectId);
   const workspace = activeProject?.name || "Personal OS";
+  const persona = PERSONAS.find((item) => item.id === activePersona) || PERSONAS[0];
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+
+    async function pingHealth() {
+      try {
+        const res = await fetch(`${API_BASE}/api/health`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!alive) return;
+        if (!res.ok) {
+          setHealth({ status: "down", degraded: true, checkedAt: Date.now() });
+          return;
+        }
+        const body = await res.json();
+        setHealth({
+          status: body.status || "up",
+          degraded: Boolean(body.degraded),
+          checkedAt: Date.now(),
+        });
+      } catch {
+        if (!alive) return;
+        setHealth({ status: "down", degraded: true, checkedAt: Date.now() });
+      }
+    }
+
+    pingHealth();
+    const timer = window.setInterval(pingHealth, 30000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [token]);
+
+  function toggleToolChip(toolId) {
+    setActiveTools((current) => (
+      current.includes(toolId)
+        ? current.filter((item) => item !== toolId)
+        : [...current, toolId]
+    ));
+  }
+
+  function moveToolPriority(toolId, direction) {
+    setActiveTools((current) => {
+      const idx = current.indexOf(toolId);
+      if (idx < 0) return current;
+      const nextIdx = direction === "left" ? idx - 1 : idx + 1;
+      if (nextIdx < 0 || nextIdx >= current.length) return current;
+      const next = [...current];
+      const [picked] = next.splice(idx, 1);
+      next.splice(nextIdx, 0, picked);
+      return next;
+    });
+  }
+
+  const appendActivity = useCallback((event, detail = "") => {
+    const row = {
+      id: safeId(),
+      ts: Date.now(),
+      event,
+      detail,
+    };
+    setActivityLog((current) => [row, ...current].slice(0, 200));
+  }, []);
 
   useEffect(() => {
     if (!threads.length) {
@@ -473,16 +562,9 @@ export default function Home() {
       setThreads((current) => current.map((thread) => {
         if (thread.id !== activeThread.id) return thread;
         if (thread.draft === composerText) return thread;
-        let nextTitle = thread.title;
-        if (composerText.trim() && !thread.messages.length) {
-          nextTitle = thread.title.startsWith("(unsent)")
-            ? thread.title
-            : `(unsent) ${composerText.trim().slice(0, 48)}`;
-        }
         return {
           ...thread,
           draft: composerText,
-          title: nextTitle,
           updatedAt: Date.now(),
         };
       }));
@@ -526,6 +608,7 @@ export default function Home() {
     uploadCategory,
     setUploadCategory,
     workspaceFiles,
+    setWorkspaceFiles,
     fileLookup,
     selectedLibraryFiles,
     lastSelectedLibraryIndex,
@@ -552,6 +635,8 @@ export default function Home() {
     toggleLibrarySelection,
     handleLibraryBulkAction,
   } = useWorkspaceAttachments({
+    token,
+    onAuthError: () => logout("Your session expired. Please sign in again."),
     activeThread,
     activeThreadId,
     mainView,
@@ -571,25 +656,48 @@ export default function Home() {
 
   const composerAttachmentIds = activeThread?.attachments || [];
   const files = composerAttachmentIds.map((id) => fileLookup[id]).filter(Boolean);
+  const knowledgeStats = workspaceFiles.reduce(
+    (acc, file) => {
+      acc.docs += 1;
+      acc.tokens += file.tokenCount || 0;
+      acc.chunks += file.chunkCount || 0;
+      if (file.status === "indexed") acc.ready += 1;
+      if (file.status === "failed") acc.failed += 1;
+      if (!["indexed", "failed"].includes(file.status)) acc.indexing += 1;
+      return acc;
+    },
+    { docs: 0, chunks: 0, tokens: 0, ready: 0, failed: 0, indexing: 0 },
+  );
+  const indexedKnowledgeFiles = workspaceFiles.filter((file) => file.status === "indexed");
+  const includedKnowledgeFiles = indexedKnowledgeFiles.filter((file) => file.includeInContext !== false);
+  const scopedKnowledgeFileIds = includedKnowledgeFiles.map((file) => file.backendFileId).filter(Boolean);
+
+  useEffect(() => {
+    const changed = workspaceFiles.some((file) => file.status === "indexed" || file.status === "failed");
+    if (!changed) return;
+    const latest = workspaceFiles[0];
+    if (!latest) return;
+    if (latest.status === "indexed") {
+      appendActivity("Indexed", `${latest.name} (${latest.chunkCount || 0} chunks)`);
+    }
+    if (latest.status === "failed") {
+      appendActivity("Index failed", `${latest.name}`);
+    }
+  }, [appendActivity, workspaceFiles]);
 
   useEffect(() => {
     if (!activeThread) return;
-    const shouldOpen = railPinned || artifactItems.length > 0 || sourceItems.length > 0 || files.length > 0;
+    const toolActivity = (lastAssistantMessage?.runtime?.tools || []).length > 0;
+    const shouldOpen = railPinned || artifactItems.length > 0 || sourceItems.length > 0 || files.length > 0 || workspaceFiles.length > 0 || toolActivity;
     setRailOpen(shouldOpen);
-  }, [activeThread, artifactItems.length, sourceItems.length, files.length, railPinned]);
+  }, [activeThread, artifactItems.length, sourceItems.length, files.length, railPinned, workspaceFiles.length, lastAssistantMessage]);
 
   const persistUnsentThread = useCallback((threadId, draft) => {
     if (!threadId) return;
     updateThreadById(threadId, (thread) => {
-      if (!draft.trim()) return { ...thread, draft: draft || "" };
-      const shouldMarkUnsent = !thread.messages.length;
-      const nextTitle = shouldMarkUnsent
-        ? `(unsent) ${draft.trim().slice(0, 48)}`
-        : thread.title;
       return {
         ...thread,
         draft,
-        title: nextTitle,
         updatedAt: Date.now(),
       };
     });
@@ -753,7 +861,7 @@ export default function Home() {
     setSendLoading(false);
   }
 
-  async function streamIntoMessage(threadId, messageId, text, citations) {
+  async function streamIntoMessage(threadId, messageId, text, citations, runtime) {
     const tokens = text.match(/\S+\s*/g) || [text];
     const total = tokens.length;
     let cursor = 0;
@@ -766,7 +874,15 @@ export default function Home() {
           ...thread,
           messages: thread.messages.map((message) => (
             message.id === messageId
-              ? { ...message, content: chunk, citations, streaming: cursor < total, ts: Date.now() }
+              ? {
+                ...message,
+                content: chunk,
+                citations,
+                runtime: runtime || message.runtime,
+                failed: false,
+                streaming: cursor < total,
+                ts: Date.now(),
+              }
               : message
           )),
           updatedAt: Date.now(),
@@ -795,7 +911,13 @@ export default function Home() {
     const res = await fetch(`${API_BASE}/api/assistant/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ question: contextualQuestion, model: composerModel }),
+      body: JSON.stringify({
+        question: contextualQuestion,
+        model: composerModel,
+        mode: persona.mode,
+        tools: activeTools,
+        knowledge_file_ids: scopedKnowledgeFileIds,
+      }),
       signal: controller.signal,
     });
 
@@ -807,7 +929,9 @@ export default function Home() {
     const body = await res.json().catch(() => ({}));
     const output = body.answer || body.detail || "No response returned.";
     const citations = body.citations || [];
-    await streamIntoMessage(threadId, assistantMessageId, output, citations);
+    const runtime = body.runtime || null;
+    await streamIntoMessage(threadId, assistantMessageId, output, citations, runtime);
+    appendActivity("Assistant response", `${(runtime?.latency_ms || 0)}ms · ${(citations || []).length} citations`);
 
     if (!res.ok) {
       setComposerError(await readErrorMessage(res, "Assistant request failed."));
@@ -832,6 +956,8 @@ export default function Home() {
       role: "assistant",
       content: "",
       citations: [],
+      failed: false,
+      runtime: null,
       streaming: true,
       ts: Date.now(),
     };
@@ -860,12 +986,18 @@ export default function Home() {
         ...thread,
         messages: thread.messages.map((message) => (
           message.id === assistantMessage.id
-            ? { ...message, content: "Assistant request failed due to network error.", streaming: false }
+            ? {
+              ...message,
+              content: "Message failed to send. Retry when connection is stable.",
+              failed: true,
+              streaming: false,
+            }
             : message
         )),
         updatedAt: Date.now(),
       }));
       setComposerError("Unable to connect to assistant service.");
+      appendActivity("Send failed", "Assistant request failed due to network/service error.");
     } finally {
       generationAbortRef.current = null;
       setSendLoading(false);
@@ -887,7 +1019,7 @@ export default function Home() {
       ...thread,
       messages: thread.messages.map((message, idx) => (
         idx === messageIndex
-          ? { ...message, content: "", citations: [], streaming: true, ts: Date.now() }
+          ? { ...message, content: "", citations: [], failed: false, streaming: true, ts: Date.now() }
           : message
       )),
       updatedAt: Date.now(),
@@ -1300,6 +1432,110 @@ export default function Home() {
     const key = source?.id || source?.title || `source-${index + 1}`;
     setSourceFocusKey(key);
     setRailTab("sources");
+    setRailOpen(true);
+  }
+
+  async function reindexKnowledgeFile(file) {
+    if (!token || !file?.backendFileId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/knowledge/reindex-file/${encodeURIComponent(file.backendFileId)}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        logout("Your session expired. Please sign in again.");
+        return;
+      }
+      if (!res.ok) {
+        const detail = await readErrorMessage(res, "Reindex failed.");
+        setComposerError(detail);
+        appendActivity("Reindex failed", file.name);
+        return;
+      }
+      setWorkspaceFiles((current) => current.map((item) => (
+        item.id === file.id
+          ? { ...item, status: "indexed", statusLabel: "ready", lastIndexed: new Date().toISOString() }
+          : item
+      )));
+      appendActivity("Reindexed", file.name);
+    } catch {
+      setComposerError("Unable to reindex knowledge file.");
+      appendActivity("Reindex failed", file.name);
+    }
+  }
+
+  function renameKnowledgeFile(file) {
+    if (!file) return;
+    const nextName = window.prompt("Rename file", file.name || "");
+    if (!nextName || !nextName.trim()) return;
+    setWorkspaceFiles((current) => current.map((item) => (
+      item.id === file.id ? { ...item, name: nextName.trim() } : item
+    )));
+    appendActivity("Renamed file", `${file.name} → ${nextName.trim()}`);
+  }
+
+  function toggleKnowledgeInclusion(fileId, checked) {
+    setWorkspaceFiles((current) => current.map((item) => (
+      item.id === fileId ? { ...item, includeInContext: checked } : item
+    )));
+  }
+
+  function toggleKnowledgeSelection(fileId) {
+    setSelectedKnowledgeIds((current) => (
+      current.includes(fileId)
+        ? current.filter((item) => item !== fileId)
+        : [...current, fileId]
+    ));
+  }
+
+  async function bulkReindexKnowledge() {
+    const targets = selectedKnowledgeIds.length
+      ? workspaceFiles.filter((file) => selectedKnowledgeIds.includes(file.id))
+      : workspaceFiles;
+    for (const file of targets) {
+      if (file.backendFileId) {
+        // eslint-disable-next-line no-await-in-loop
+        await reindexKnowledgeFile(file);
+      }
+    }
+    setSelectedKnowledgeIds([]);
+  }
+
+  function clearInactiveKnowledge() {
+    const ids = new Set(workspaceFiles.filter((file) => file.includeInContext === false).map((file) => file.id));
+    if (!ids.size) return;
+    ids.forEach((id) => deleteFile(id));
+    appendActivity("Cleared inactive", `${ids.size} files removed`);
+  }
+
+  function exportKnowledgeSummary() {
+    const payload = workspaceFiles.map((file) => ({
+      name: file.name,
+      kind: file.kind,
+      status: file.status,
+      chunks: file.chunkCount || 0,
+      tokens: file.tokenCount || 0,
+      includeInContext: file.includeInContext !== false,
+      lastIndexed: file.lastIndexed || null,
+    }));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "knowledge-export.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    appendActivity("Exported knowledge", `${payload.length} files`);
+  }
+
+  function handleViewPrompt(promptPreview) {
+    if (!promptPreview || !activeThread) return;
+    updateThreadById(activeThread.id, (thread) => ({
+      ...thread,
+      notes: `Prompt preview\n\n${promptPreview}`,
+      updatedAt: Date.now(),
+    }));
+    setRailTab("notes");
     setRailOpen(true);
   }
 
@@ -1735,6 +1971,12 @@ export default function Home() {
             )}
           </div>
           <div className="header-actions">
+            <span className={`health-dot ${health.status === "up" && !health.degraded ? "up" : health.status === "up" ? "degraded" : "down"}`} title="System health" />
+            <select value={activePersona} onChange={(e) => setActivePersona(e.target.value)} aria-label="Persona selector">
+              {PERSONAS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
             <select value={activeModel} onChange={(e) => setActiveModel(e.target.value)}>
               <option value="sonnet">Claude 3.5 Sonnet</option>
               <option value="haiku">Claude 3.5 Haiku</option>
@@ -1844,6 +2086,7 @@ export default function Home() {
                 onCreateArtifact={createArtifactFromMessage}
                 onSourceOpen={handleSourceOpen}
                 onFollowup={applyFollowupSuggestion}
+                onViewPrompt={handleViewPrompt}
                 scrollHostRef={messagesFrameRef}
               />
             )}
@@ -1920,6 +2163,27 @@ export default function Home() {
               </div>
             ) : null}
 
+            <div className="context-chip-row" aria-label="Active context">
+              <button type="button" className="chip" onClick={() => setRailTab("knowledge")}>📎 {knowledgeStats.docs} files</button>
+              <button type="button" className="chip" onClick={() => setRailTab("tools")}>🛠 {activeTools.length} tools</button>
+              <button type="button" className="chip" onClick={() => setRailTab("persona")}>🧠 {persona.label}</button>
+              <button type="button" className="chip" onClick={() => setRailTab("activity")}>tokens {Math.min(8000, (composerText.split(/\s+/).filter(Boolean).length * 2) + knowledgeStats.tokens)}/8000</button>
+            </div>
+
+            <div className="tool-chip-row" aria-label="Tool toggles">
+              {TOOL_OPTIONS.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  className={`chip ${activeTools.includes(tool.id) ? "primary" : "ghost"}`}
+                  onClick={() => toggleToolChip(tool.id)}
+                  title={tool.description}
+                >
+                  {tool.label} {activeTools.includes(tool.id) ? "✓" : "✗"}
+                </button>
+              ))}
+            </div>
+
             <div className="composer-grid">
               <div className="composer-input-wrap">
                 <textarea
@@ -1962,12 +2226,7 @@ export default function Home() {
                   <option value="haiku">Claude 3.5 Haiku</option>
                   <option value="opus">Claude 3 Opus</option>
                 </select>
-                <select value={activeTool} onChange={(e) => setActiveTool(e.target.value)} aria-label="Tools selector">
-                      <option value="search">Web search</option>
-                  <option value="vision">Vision</option>
-                      <option value="code">Code assist</option>
-                  <option value="canvas">Canvas</option>
-                </select>
+                <span className="hint">Mode: {persona.mode}</span>
                 <button
                   type="button"
                   className={`send-or-stop ${sendLoading ? "is-stop" : ""}`}
@@ -2000,11 +2259,14 @@ export default function Home() {
         </div>
         <div className="rail-tabs">
           {[
+            ["knowledge", "Knowledge"],
+            ["tools", "Tools"],
+            ["persona", "Persona"],
+            ["activity", "Activity"],
             ["artifact", "Artifact"],
             ["sources", "Sources"],
             ["files", "Files"],
             ["notes", "Notes"],
-            ["instructions", "Instructions"],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -2017,6 +2279,150 @@ export default function Home() {
           ))}
         </div>
         <div className="rail-content">
+          {railTab === "knowledge" ? (
+            <section className="rail-section">
+              <div className="controls">
+                <button type="button" onClick={() => openUploadPicker("dashboard")}>Upload</button>
+                <button type="button" className="ghost" onClick={() => setMainView("library")}>Open library</button>
+                <button type="button" className="ghost" onClick={bulkReindexKnowledge}>Reindex all</button>
+                <button type="button" className="ghost" onClick={clearInactiveKnowledge}>Clear inactive</button>
+                <button type="button" className="ghost" onClick={exportKnowledgeSummary}>Export</button>
+              </div>
+              <p className="muted">Ready {knowledgeStats.ready} · Indexing {knowledgeStats.indexing} · Failed {knowledgeStats.failed} · Total {knowledgeStats.chunks} chunks · {knowledgeStats.tokens} tokens</p>
+              {workspaceFiles.length ? workspaceFiles.map((file) => (
+                <article key={file.id} className="rail-card">
+                  <div className="controls">
+                    <label className="check-line">
+                      <input
+                        type="checkbox"
+                        checked={selectedKnowledgeIds.includes(file.id)}
+                        onChange={() => toggleKnowledgeSelection(file.id)}
+                      />
+                      <span />
+                    </label>
+                    <strong>{file.name}</strong>
+                  </div>
+                  <p className="muted">
+                    {file.statusLabel || file.status || "uploading"}
+                    {file.chunkCount ? ` · ${file.chunkCount} chunks` : ""}
+                    {file.tokenCount ? ` · ${file.tokenCount} tokens` : ""}
+                  </p>
+                  <div className="controls">
+                    <button type="button" onClick={() => setSelectedRailFileId(file.id)}>Open</button>
+                    <button type="button" className="ghost" onClick={() => reindexKnowledgeFile(file)}>Reindex</button>
+                    <label className="check-line">
+                      <input
+                        type="checkbox"
+                        checked={file.includeInContext !== false}
+                        onChange={(e) => toggleKnowledgeInclusion(file.id, e.target.checked)}
+                      />
+                      <span>{file.includeInContext !== false ? "Active" : "Excluded"}</span>
+                    </label>
+                    <button type="button" className="ghost" onClick={() => renameKnowledgeFile(file)}>Rename</button>
+                    <button type="button" className="ghost danger" onClick={() => deleteFile(file.id)}>Delete</button>
+                  </div>
+                  {file.error ? <p className="status-error">{file.error}</p> : null}
+                </article>
+              )) : <p className="muted">No knowledge files yet. Upload a file to make responses grounded.</p>}
+            </section>
+          ) : null}
+
+          {railTab === "tools" ? (
+            <section className="rail-section">
+              {TOOL_OPTIONS.map((tool) => (
+                <article key={tool.id} className="rail-card">
+                  <div className="controls">
+                    <strong>{tool.label}</strong>
+                    <label className="check-line">
+                      <input
+                        type="checkbox"
+                        checked={activeTools.includes(tool.id)}
+                        onChange={() => toggleToolChip(tool.id)}
+                      />
+                      <span>{activeTools.includes(tool.id) ? "On" : "Off"}</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={!activeTools.includes(tool.id) || activeTools.indexOf(tool.id) <= 0}
+                      onClick={() => moveToolPriority(tool.id, "left")}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={!activeTools.includes(tool.id) || activeTools.indexOf(tool.id) === activeTools.length - 1}
+                      onClick={() => moveToolPriority(tool.id, "right")}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                  <p className="muted">{tool.description}</p>
+                  <p className="muted">Priority: {activeTools.includes(tool.id) ? activeTools.indexOf(tool.id) + 1 : "off"} / {activeTools.length || 1}</p>
+                </article>
+              ))}
+            </section>
+          ) : null}
+
+          {railTab === "persona" ? (
+            <section className="rail-section">
+              <label className="instructions-field">
+                <span>Persona</span>
+                <select value={activePersona} onChange={(e) => setActivePersona(e.target.value)}>
+                  {PERSONAS.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="muted">{persona.description}</p>
+              <label className="instructions-field">
+                <span>Mode routing</span>
+                <input value={persona.mode} readOnly />
+              </label>
+              <label className="instructions-field">
+                <span>Tools in persona scope</span>
+                <div className="instructions-checks">
+                  {TOOL_OPTIONS.map((tool) => (
+                    <label key={tool.id} className="check-line">
+                      <input type="checkbox" checked={activeTools.includes(tool.id)} onChange={() => toggleToolChip(tool.id)} />
+                      <span>{tool.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </label>
+            </section>
+          ) : null}
+
+          {railTab === "activity" ? (
+            <section className="rail-section">
+              <article className="rail-card">
+                <strong>System</strong>
+                <p className="muted">Health: {health.status}{health.degraded ? " (degraded)" : ""}</p>
+                <p className="muted">Model: {composerModel}</p>
+                <p className="muted">Knowledge: {knowledgeStats.docs} docs · {knowledgeStats.chunks} chunks</p>
+              </article>
+              {activityLog.slice(0, 20).map((item) => (
+                <article key={item.id} className="rail-card">
+                  <strong>{item.event}</strong>
+                  <p className="muted">{new Date(item.ts).toLocaleTimeString()}</p>
+                  <p className="muted">{item.detail}</p>
+                </article>
+              ))}
+              {(activeMessages || []).slice(-8).reverse().map((msg) => (
+                <article key={`activity-${msg.id}`} className="rail-card">
+                  <strong>{msg.role === "assistant" ? "Assistant" : "User"}</strong>
+                  <p className="muted">{new Date(msg.ts || Date.now()).toLocaleTimeString()}</p>
+                  {msg.runtime ? (
+                    <p className="muted">
+                      {msg.runtime.model} · {msg.runtime.latency_ms}ms · {msg.runtime.token_output_est || 0} tokens
+                    </p>
+                  ) : null}
+                </article>
+              ))}
+            </section>
+          ) : null}
+
           {railTab === "artifact" ? (
             <>
               <div className="controls">
@@ -2264,6 +2670,14 @@ export default function Home() {
           Open workspace rail
         </button>
       ) : null}
+
+      <div className="system-status-footer" role="status" aria-live="polite">
+        <span className={`health-dot ${health.status === "up" && !health.degraded ? "up" : health.status === "up" ? "degraded" : "down"}`} />
+        <span>{health.status === "up" ? (health.degraded ? "Degraded" : "Connected") : "Disconnected"}</span>
+        <span>Model: {composerModel}</span>
+        <span>{Math.min(8000, (composerText.split(/\s+/).filter(Boolean).length * 2) + knowledgeStats.tokens)} / 8K tokens</span>
+        <span>KB: {knowledgeStats.docs} docs ({knowledgeStats.chunks} chunks)</span>
+      </div>
 
       {commandPaletteOpen ? (
         <div className="lightbox" onClick={() => setCommandPaletteOpen(false)}>

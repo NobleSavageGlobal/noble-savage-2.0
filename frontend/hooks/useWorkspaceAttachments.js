@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
+
 function safeId() {
   if (typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -39,6 +41,8 @@ async function enrichFileMetadata(file, kind) {
 }
 
 export default function useWorkspaceAttachments({
+  token,
+  onAuthError,
   activeThread,
   activeThreadId,
   mainView,
@@ -89,6 +93,7 @@ export default function useWorkspaceAttachments({
           ...file,
           processing: false,
           extractReady: true,
+          status: file.status === "failed" ? "failed" : "indexed",
           extractBadge: kind === "audio"
             ? "Transcript ready"
             : kind === "image"
@@ -97,6 +102,39 @@ export default function useWorkspaceAttachments({
         };
       }));
     }, 1600 + Math.round(Math.random() * 1400));
+  }
+
+  async function indexFileInBackend(file) {
+    if (!token) {
+      return {
+        status: "indexed",
+        status_chip: "ready",
+        chunk_count: 0,
+        token_count: 0,
+        last_indexed: null,
+        file_id: "",
+      };
+    }
+    const form = new FormData();
+    form.append("files", file, file.name);
+    const res = await fetch(`${API_BASE}/api/knowledge/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (res.status === 401 && typeof onAuthError === "function") {
+      onAuthError();
+      throw new Error("unauthorized");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(body.detail || "Indexing failed");
+    }
+    const uploaded = Array.isArray(body.uploaded) ? body.uploaded[0] : null;
+    if (!uploaded) {
+      throw new Error("No indexing metadata returned");
+    }
+    return uploaded;
   }
 
   function uploadFileWithProgress(fileRecord, file, kind) {
@@ -122,13 +160,56 @@ export default function useWorkspaceAttachments({
             ? {
               ...item,
               ...metadata,
-              progress: 100,
+              progress: 98,
               uploaded: true,
               processing: true,
+              status: "parsing",
+              statusLabel: "parsing",
               extractReady: false,
             }
             : item
         )));
+        try {
+          setWorkspaceFiles((current) => current.map((item) => (
+            item.id === fileRecord.id
+              ? { ...item, status: "chunking", statusLabel: "chunking" }
+              : item
+          )));
+          const indexed = await indexFileInBackend(file);
+          setWorkspaceFiles((current) => current.map((item) => (
+            item.id === fileRecord.id
+              ? {
+                ...item,
+                progress: 100,
+                uploaded: true,
+                processing: false,
+                extractReady: true,
+                extractBadge: "Indexed",
+                status: indexed.status || "indexed",
+                statusLabel: indexed.status_chip || "ready",
+                backendFileId: indexed.file_id || "",
+                chunkCount: indexed.chunk_count || 0,
+                tokenCount: indexed.token_count || 0,
+                lastIndexed: indexed.last_indexed || null,
+              }
+              : item
+          )));
+        } catch (err) {
+          const message = err?.message || "Indexing failed";
+          setWorkspaceFiles((current) => current.map((item) => (
+            item.id === fileRecord.id
+              ? {
+                ...item,
+                progress: 100,
+                uploaded: true,
+                processing: false,
+                status: "failed",
+                statusLabel: "failed",
+                error: message,
+              }
+              : item
+          )));
+        }
         startBackgroundExtraction(fileRecord.id, kind);
         resolve();
       };
@@ -183,6 +264,12 @@ export default function useWorkspaceAttachments({
         processing: true,
         extractReady: false,
         extractBadge: "Processing...",
+        status: "uploading",
+        statusLabel: "uploading",
+        includeInContext: true,
+        chunkCount: 0,
+        tokenCount: 0,
+        lastIndexed: null,
         blobUrl: URL.createObjectURL(file),
       };
     });

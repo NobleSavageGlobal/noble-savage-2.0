@@ -143,6 +143,14 @@ def _to_date(value: Any) -> date | None:
         return date.fromisoformat(value)
     return None
 
+def _safe_json_loads(value: Any, default: Any) -> Any:
+    if value in (None, ""):
+        return default
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
 
 def _row_to_task(row: Row[Any]) -> dict[str, Any]:
     m = row._mapping
@@ -274,6 +282,12 @@ def init_db() -> None:
                     tags text,
                     embedding text,
                     embedding_model text,
+                    file_id text,
+                    chunk_index integer,
+                    chunk_total integer,
+                    token_count integer default 0,
+                    status text default 'indexed',
+                    last_indexed_at timestamp,
                     created_at timestamp default CURRENT_TIMESTAMP
                 )
                 """
@@ -289,6 +303,12 @@ def init_db() -> None:
     _ensure_column("knowledge", "user_id", "text")
     _ensure_column("knowledge", "embedding", "text")
     _ensure_column("knowledge", "embedding_model", "text")
+    _ensure_column("knowledge", "file_id", "text")
+    _ensure_column("knowledge", "chunk_index", "integer")
+    _ensure_column("knowledge", "chunk_total", "integer")
+    _ensure_column("knowledge", "token_count", "integer default 0")
+    _ensure_column("knowledge", "status", "text default 'indexed'")
+    _ensure_column("knowledge", "last_indexed_at", "timestamp")
 
 
 def create_user(email: str, password_hash: str, name: str | None) -> dict[str, Any]:
@@ -903,12 +923,19 @@ def create_knowledge(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     embedding = payload.get("embedding")
     if embedding is None:
         embedding = embed_text(f"{payload['title']}\n{payload['content']}")
+    status = payload.get("status") or "indexed"
     with engine.begin() as conn:
         conn.execute(
             text(
                 """
-                insert into knowledge (id, user_id, title, content, source, tags, embedding, embedding_model, created_at)
-                values (:id, :user_id, :title, :content, :source, :tags, :embedding, :embedding_model, :created_at)
+                insert into knowledge (
+                    id, user_id, title, content, source, tags, embedding, embedding_model,
+                    file_id, chunk_index, chunk_total, token_count, status, last_indexed_at, created_at
+                )
+                values (
+                    :id, :user_id, :title, :content, :source, :tags, :embedding, :embedding_model,
+                    :file_id, :chunk_index, :chunk_total, :token_count, :status, :last_indexed_at, :created_at
+                )
                 """
             ),
             {
@@ -920,6 +947,12 @@ def create_knowledge(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                 "tags": json.dumps(payload.get("tags") or []),
                 "embedding": json.dumps(embedding),
                 "embedding_model": payload.get("embedding_model") or os.getenv("OPENROUTER_EMBEDDING_MODEL", "openai/text-embedding-3-small"),
+                "file_id": payload.get("file_id"),
+                "chunk_index": payload.get("chunk_index"),
+                "chunk_total": payload.get("chunk_total"),
+                "token_count": int(payload.get("token_count") or 0),
+                "status": status,
+                "last_indexed_at": now if status == "indexed" else None,
                 "created_at": now,
             },
         )
@@ -933,9 +966,15 @@ def create_knowledge(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "title": m["title"],
         "content": m["content"],
         "source": m["source"],
-        "tags": json.loads(m["tags"] or "[]"),
-        "embedding": json.loads(m["embedding"] or "[]"),
+        "tags": _safe_json_loads(m["tags"], []),
+        "embedding": _safe_json_loads(m["embedding"], []),
         "embedding_model": m["embedding_model"],
+        "file_id": m.get("file_id"),
+        "chunk_index": m.get("chunk_index"),
+        "chunk_total": m.get("chunk_total"),
+        "token_count": int(m.get("token_count") or 0),
+        "status": m.get("status") or "indexed",
+        "last_indexed_at": _to_datetime(m["last_indexed_at"]) if m.get("last_indexed_at") else None,
         "created_at": _to_datetime(m["created_at"]),
     }
 
@@ -962,17 +1001,28 @@ def list_knowledge(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
                 "title": m["title"],
                 "content": m["content"],
                 "source": m["source"],
-                "tags": json.loads(m["tags"] or "[]"),
-                "embedding": json.loads(m["embedding"] or "[]"),
+                "tags": _safe_json_loads(m["tags"], []),
+                "embedding": _safe_json_loads(m["embedding"], []),
                 "embedding_model": m["embedding_model"],
+                "file_id": m.get("file_id"),
+                "chunk_index": m.get("chunk_index"),
+                "chunk_total": m.get("chunk_total"),
+                "token_count": int(m.get("token_count") or 0),
+                "status": m.get("status") or "indexed",
+                "last_indexed_at": _to_datetime(m["last_indexed_at"]) if m.get("last_indexed_at") else None,
                 "created_at": _to_datetime(m["created_at"]),
             }
         )
     return output
 
 
-def search_knowledge(user_id: str, query: str, limit: int = 5) -> list[dict[str, Any]]:
+def search_knowledge(
+    user_id: str, query: str, limit: int = 8, file_ids: list[str] | None = None
+) -> list[dict[str, Any]]:
     pool = list_knowledge(user_id, limit=200)
+    if file_ids:
+        allowed = {item for item in file_ids if item}
+        pool = [item for item in pool if item.get("file_id") in allowed]
     if not pool:
         return []
 
@@ -1000,6 +1050,19 @@ def search_knowledge(user_id: str, query: str, limit: int = 5) -> list[dict[str,
     return [item for _, item in scored[:limit]] if scored else pool[: min(limit, len(pool))]
 
 
+def reembed_knowledge_file(user_id: str, file_id: str) -> dict[str, Any]:
+    entries = [item for item in list_knowledge(user_id, limit=500) if item.get("file_id") == file_id]
+    if not entries:
+        return {"updated": 0, "file_id": file_id}
+
+    updated = 0
+    for entry in entries:
+        refreshed = update_knowledge_embedding(user_id, entry["id"])
+        if refreshed:
+            updated += 1
+    return {"updated": updated, "file_id": file_id}
+
+
 def update_knowledge_embedding(user_id: str, knowledge_id: str) -> dict[str, Any] | None:
     with engine.begin() as conn:
         row = conn.execute(
@@ -1015,7 +1078,7 @@ def update_knowledge_embedding(user_id: str, knowledge_id: str) -> dict[str, Any
             text(
                 """
                 update knowledge
-                set embedding = :embedding, embedding_model = :embedding_model
+                set embedding = :embedding, embedding_model = :embedding_model, status = 'indexed', last_indexed_at = :last_indexed_at
                 where id = :id and user_id = :user_id
                 """
             ),
@@ -1024,6 +1087,7 @@ def update_knowledge_embedding(user_id: str, knowledge_id: str) -> dict[str, Any
                 "user_id": user_id,
                 "embedding": json.dumps(embedding),
                 "embedding_model": os.getenv("OPENROUTER_EMBEDDING_MODEL", "openai/text-embedding-3-small"),
+                "last_indexed_at": datetime.utcnow(),
             },
         )
         updated = conn.execute(
@@ -1037,8 +1101,14 @@ def update_knowledge_embedding(user_id: str, knowledge_id: str) -> dict[str, Any
         "title": um["title"],
         "content": um["content"],
         "source": um["source"],
-        "tags": json.loads(um["tags"] or "[]"),
-        "embedding": json.loads(um["embedding"] or "[]"),
+        "tags": _safe_json_loads(um["tags"], []),
+        "embedding": _safe_json_loads(um["embedding"], []),
         "embedding_model": um["embedding_model"],
+        "file_id": um.get("file_id"),
+        "chunk_index": um.get("chunk_index"),
+        "chunk_total": um.get("chunk_total"),
+        "token_count": int(um.get("token_count") or 0),
+        "status": "indexed",
+        "last_indexed_at": datetime.utcnow(),
         "created_at": _to_datetime(um["created_at"]),
     }

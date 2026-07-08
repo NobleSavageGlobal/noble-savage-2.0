@@ -592,6 +592,23 @@ button.primary {
   align-items: center;
   gap: 8px;
 }
+.health-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+  border: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+  background: #ef4444;
+}
+.health-dot.up {
+  background: #22c55e;
+}
+.health-dot.degraded {
+  background: #f59e0b;
+}
+.health-dot.down {
+  background: #ef4444;
+}
 
 .density-toggle {
   display: inline-flex;
@@ -649,6 +666,12 @@ button.primary {
 .chip {
   border-radius: 999px;
   padding: 6px 12px;
+}
+.context-chip-row,
+.tool-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .message-list {
@@ -919,6 +942,32 @@ button.primary {
 .state-chip.on {
   border-color: color-mix(in oklab, var(--accent) 50%, var(--line));
   color: var(--accent);
+}
+.send-failed-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in oklab, var(--danger) 40%, var(--line));
+  background: color-mix(in oklab, var(--danger) 8%, var(--panel));
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  color: var(--danger);
+}
+.message-runtime-row {
+  font-size: 0.76rem;
+}
+.tool-call-row {
+  display: grid;
+  gap: 6px;
+}
+.tool-call-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.78rem;
+  color: var(--soft-ink);
+  background: color-mix(in oklab, var(--surface-2) 55%, var(--panel));
 }
 
 .message-renderer {
@@ -1944,6 +1993,26 @@ button.primary {
   border-color: var(--accent);
   background: var(--panel);
 }
+.system-status-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in oklab, var(--panel) 92%, var(--surface-2));
+  font-size: 0.72rem;
+  color: var(--soft-ink);
+  z-index: 35;
+}
+.rail-section {
+  display: grid;
+  gap: 8px;
+}
 
 .command-palette {
   width: min(720px, 94vw);
@@ -2121,7 +2190,7 @@ button.primary {
   }
 
   .composer-wrap {
-    padding: 10px 14px;
+    padding: 10px 12px 28px;
   }
 
   .composer-grid {

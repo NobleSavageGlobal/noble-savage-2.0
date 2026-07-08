@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Any
 
 import httpx
@@ -104,17 +105,32 @@ Rules:
 """.strip()
 
 
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    # Fast approximation for UI observability.
+    return max(1, len(text.split()))
+
+
 def build_context(citations: list[dict[str, Any]]) -> str:
     if not citations:
         return "No knowledge entries were found. Ask a clarifying question and suggest ingesting source material."
 
     chunks = []
     for i, entry in enumerate(citations, start=1):
+        chunk_idx = entry.get("chunk_index")
+        chunk_total = entry.get("chunk_total")
+        chunk_label = (
+            f"{chunk_idx}/{chunk_total}"
+            if chunk_idx is not None and chunk_total is not None
+            else str(i)
+        )
         chunks.append(
-            f"[{i}] Title: {entry['title']}\n"
-            f"Source: {entry.get('source') or 'manual'}\n"
-            f"Tags: {', '.join(entry.get('tags') or [])}\n"
-            f"Content:\n{entry['content']}"
+            "---\n"
+            f"<knowledge file=\"{entry['title']}\" chunk=\"{chunk_label}\" citation=\"[{i}]\">\n"
+            f"{entry['content']}\n"
+            "</knowledge>\n"
+            "---"
         )
     return "\n\n".join(chunks)
 
@@ -136,7 +152,11 @@ async def query_openrouter(
     operational_context: str | None = None,
     proactive: bool = False,
     mode: str | None = None,
-) -> str:
+    model: str | None = None,
+    include_runtime: bool = False,
+) -> str | dict[str, Any]:
+    requested_model = model or OPENROUTER_MODEL
+
     context = build_context(citations)
     live_context = build_operational_context(operational_context)
     active_domain, domain_overlay = build_domain_overlay(question, mode)
@@ -154,7 +174,7 @@ async def query_openrouter(
         missing_context_note = (
             "Missing context: external model provider is not configured (OPENROUTER_API_KEY)."
         )
-        return (
+        fallback = (
             "Direct solution:\n"
             "1) Set OPENROUTER_API_KEY in backend/.env and restart the backend.\n"
             "2) Re-run this request to get model-backed analysis.\n\n"
@@ -168,9 +188,26 @@ async def query_openrouter(
             "- Critical risk to price in: repeated retries without provider config can look like product instability.\n\n"
             f"{missing_context_note}"
         )
+        if include_runtime:
+            return {
+                "answer": fallback,
+                "runtime": {
+                    "model": requested_model,
+                    "mode": active_domain,
+                    "latency_ms": 0,
+                    "token_input_est": _estimate_tokens(question),
+                    "token_output_est": _estimate_tokens(fallback),
+                    "token_context_est": _estimate_tokens(context),
+                    "tools": [
+                        {"name": "Vector Search", "summary": f"returned {len(citations)} chunks", "count": len(citations)},
+                    ],
+                    "prompt_preview": system_prompt[:1200],
+                },
+            }
+        return fallback
 
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": requested_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {
@@ -197,8 +234,10 @@ async def query_openrouter(
         "X-Title": SITE_NAME,
     }
 
+    started = time.perf_counter()
     async with httpx.AsyncClient(timeout=60) as client:
         res = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+    latency_ms = int((time.perf_counter() - started) * 1000)
 
     if res.status_code >= 400:
         raise RuntimeError(f"OpenRouter error {res.status_code}: {res.text}")
@@ -208,4 +247,22 @@ async def query_openrouter(
     if not choices:
         raise RuntimeError("OpenRouter returned no choices")
 
-    return choices[0].get("message", {}).get("content", "")
+    answer = choices[0].get("message", {}).get("content", "")
+    if not include_runtime:
+        return answer
+
+    return {
+        "answer": answer,
+        "runtime": {
+            "model": requested_model,
+            "mode": active_domain,
+            "latency_ms": latency_ms,
+            "token_input_est": _estimate_tokens(question),
+            "token_output_est": _estimate_tokens(answer),
+            "token_context_est": _estimate_tokens(context),
+            "tools": [
+                {"name": "Vector Search", "summary": f"returned {len(citations)} chunks", "count": len(citations)},
+            ],
+            "prompt_preview": system_prompt[:1200],
+        },
+    }

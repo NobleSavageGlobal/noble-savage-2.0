@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from io import BytesIO
 from pathlib import Path
 import re
@@ -63,6 +64,9 @@ class ParsedDocument:
     content: str
     tags: list[str]
     warnings: list[str]
+    token_count: int = 0
+    chunk_count: int = 0
+    file_id: str = ""
     ocr_used: bool = False
 
 
@@ -187,6 +191,9 @@ def parse_document(name: str, content_type: str | None, data: bytes) -> ParsedDo
     normalized = _normalize_whitespace(content)
     if not normalized:
         raise ValueError("Could not extract readable text from file.")
+    token_count = len(re.findall(r"\S+", normalized))
+    chunk_count = len(_split_chunks(normalized))
+    file_id = hashlib.sha1(f"{name}:{len(data)}:{normalized[:300]}".encode("utf-8")).hexdigest()
 
     return ParsedDocument(
         title=stem[:180],
@@ -194,6 +201,9 @@ def parse_document(name: str, content_type: str | None, data: bytes) -> ParsedDo
         content=normalized,
         tags=tags,
         warnings=warnings,
+        token_count=token_count,
+        chunk_count=chunk_count,
+        file_id=file_id,
         ocr_used=ocr_used,
     )
 
@@ -210,6 +220,11 @@ def build_knowledge_payloads(parsed: ParsedDocument) -> list[dict[str, str | lis
                 "content": chunk,
                 "source": parsed.source,
                 "tags": parsed.tags,
+                "file_id": parsed.file_id,
+                "chunk_index": index,
+                "chunk_total": total,
+                "token_count": len(re.findall(r"\S+", chunk)),
+                "status": "indexed",
             }
         )
     return payloads

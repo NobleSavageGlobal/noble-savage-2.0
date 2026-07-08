@@ -49,6 +49,8 @@ from .knowledge_ingest import build_knowledge_payloads, parse_document
 from .schemas import (
     AssistantQueryIn,
     AssistantQueryOut,
+    AssistantRuntimeOut,
+    AssistantContextOut,
     DecisionCreate,
     DecisionOut,
     DecisionTrendPointOut,
@@ -99,6 +101,7 @@ from .store import (
     patch_task,
     save_onboarding,
     search_knowledge,
+    reembed_knowledge_file,
     update_knowledge_embedding,
 )
 
@@ -258,6 +261,23 @@ async def health() -> MessageOut:
     return MessageOut(message="ok")
 
 
+@app.get("/api/health")
+async def api_health(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    tasks = list_tasks(user["id"])
+    blocked = sum(1 for task in tasks if task["status"] == "Blocked")
+    open_p1 = sum(1 for task in tasks if task["prio"] == "P1" and task["status"] != "Done")
+    return {
+        "status": "up",
+        "degraded": blocked > 0,
+        "time": datetime.now(timezone.utc).isoformat(),
+        "metrics": {
+            "tasks_total": len(tasks),
+            "open_p1": open_p1,
+            "blocked": blocked,
+        },
+    }
+
+
 @app.post("/api/auth/register", response_model=AuthTokenOut)
 async def auth_register(payload: AuthRegisterIn, request: Request) -> AuthTokenOut:
     _enforce_auth_rate_limit(request)
@@ -338,18 +358,28 @@ async def upload_knowledge(
 
     for file in files:
         filename = file.filename or "upload"
+        stage = "uploading"
         try:
             data = await file.read()
+            stage = "parsing"
             parsed = parse_document(filename, file.content_type, data)
+            stage = "chunking"
             payloads = build_knowledge_payloads(parsed)
+            stage = "embedding"
             intelligence = analyze_document(parsed.title, parsed.content)
             intelligence_payload = {
                 "title": f"{parsed.title} (Intelligence Brief)",
                 "content": intelligence_brief_markdown(intelligence),
                 "source": parsed.source,
                 "tags": list(dict.fromkeys([*(parsed.tags or []), "intelligence", intelligence.domain, intelligence.doc_type, intelligence.severity.lower()])),
+                "file_id": parsed.file_id,
+                "chunk_index": parsed.chunk_count + 1,
+                "chunk_total": parsed.chunk_count + 1,
+                "token_count": len(intelligence_brief_markdown(intelligence).split()),
+                "status": "indexed",
             }
 
+            stage = "indexing"
             for payload in payloads:
                 create_knowledge(user["id"], payload)
             create_knowledge(user["id"], intelligence_payload)
@@ -359,14 +389,21 @@ async def upload_knowledge(
             uploaded.append(
                 {
                     "filename": filename,
+                    "file_id": parsed.file_id,
+                    "status": "indexed",
+                    "status_chip": "ready",
                     "entries_created": len(payloads) + 1,
+                    "chunk_count": parsed.chunk_count + 1,
+                    "token_count": parsed.token_count + intelligence_payload["token_count"],
                     "warnings": parsed.warnings,
                     "ocr_used": parsed.ocr_used,
+                    "last_indexed": datetime.now(timezone.utc).isoformat(),
                 }
             )
             intelligence_reports.append(
                 {
                     "filename": filename,
+                    "file_id": parsed.file_id,
                     "doc_type": intelligence.doc_type,
                     "domain": intelligence.domain,
                     "severity": intelligence.severity,
@@ -379,11 +416,11 @@ async def upload_knowledge(
             )
         except ValueError as exc:
             failed_files += 1
-            errors.append({"filename": filename, "error": str(exc)})
+            errors.append({"filename": filename, "stage": stage, "status": "failed", "error": str(exc)})
         except Exception:
             failed_files += 1
             logger.exception("Unexpected error while processing uploaded file: %s", filename)
-            errors.append({"filename": filename, "error": "Unexpected upload error"})
+            errors.append({"filename": filename, "stage": stage, "status": "failed", "error": "Unexpected upload error"})
 
     return {
         "successful_files": successful_files,
@@ -405,24 +442,53 @@ async def reembed_knowledge(
     return KnowledgeOut(**record)
 
 
+@app.post("/api/knowledge/reindex-file/{file_id}")
+async def reindex_knowledge_file(file_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    result = reembed_knowledge_file(user["id"], file_id)
+    return result
+
+
 @app.post("/api/assistant/query", response_model=AssistantQueryOut)
 async def assistant_query(
     payload: AssistantQueryIn, user: dict[str, Any] = Depends(current_user)
 ) -> AssistantQueryOut:
-    citations = search_knowledge(user["id"], payload.question, limit=5)
+    citations = search_knowledge(
+        user["id"],
+        payload.question,
+        limit=8,
+        file_ids=payload.knowledge_file_ids or None,
+    )
     try:
-        answer = await query_openrouter(
+        completion = await query_openrouter(
             payload.question,
             citations,
             operational_context=_build_operational_snapshot(user["id"]),
             proactive=False,
             mode=payload.mode,
+            model=payload.model,
+            include_runtime=True,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if isinstance(completion, dict):
+        answer = completion.get("answer") or ""
+        runtime = completion.get("runtime") or {}
+    else:
+        answer = completion
+        runtime = {}
+
+    knowledge_files = list(
+        dict.fromkeys([
+            c.get("title", "") for c in citations if c.get("title")
+        ])
+    )
+
     return AssistantQueryOut(
         answer=answer,
         citations=[KnowledgeOut(**c) for c in citations],
+        runtime=AssistantRuntimeOut(**runtime) if runtime else None,
+        context=AssistantContextOut(citations_used=len(citations), knowledge_files=knowledge_files),
     )
 
 
@@ -436,7 +502,6 @@ async def assistant_briefing(user: dict[str, Any] = Depends(current_user)) -> As
             citations,
             operational_context=snapshot,
             proactive=True,
-            mode="life_plan",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
