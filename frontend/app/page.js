@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import LibraryDashboard from "../components/LibraryDashboard";
 import MessageRenderer from "../components/MessageRenderer";
+import OnboardingPanel from "../components/OnboardingPanel";
 import useWorkspaceAttachments from "../hooks/useWorkspaceAttachments";
 import { readErrorMessage } from "../lib/apiError";
 
@@ -125,6 +126,7 @@ function createThread(title = "New thread", projectId = DEFAULT_PROJECTS[0].id) 
     messages: [],
     attachments: [],
     linkCards: [],
+    artifacts: [],
     draft: "",
     notes: "",
     pinned: false,
@@ -258,6 +260,10 @@ export default function Home() {
   const [railTab, setRailTab] = useState("artifact");
   const [railPinned, setRailPinned] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
+  const [onboardingSeen, setOnboardingSeen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [sourceFocusKey, setSourceFocusKey] = useState("");
   const [assistantName] = useState("Assistant");
   const textareaRef = useRef(null);
   const messagesFrameRef = useRef(null);
@@ -341,6 +347,27 @@ export default function Home() {
 
   useEffect(() => {
     if (!token) return;
+    const key = `ns_onboarding_seen_${token.slice(-12)}`;
+    const seen = window.localStorage.getItem(key) === "1";
+    setOnboardingSeen(seen);
+    if (!seen) {
+      setMainView("onboarding");
+      setRailOpen(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    function onEscape(event) {
+      if (event.key === "Escape") {
+        setCommandPaletteOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
 
     let cancelled = false;
     async function verifySession() {
@@ -414,9 +441,12 @@ export default function Home() {
   const activeMessages = activeThread?.messages || [];
   const lastAssistantMessage = [...activeMessages].reverse().find((m) => m.role === "assistant") || null;
   const sourceItems = lastAssistantMessage?.citations || [];
-  const artifactItems = lastAssistantMessage && hasArtifact(lastAssistantMessage.content)
-    ? [lastAssistantMessage.content]
-    : [];
+  const artifactItems = [
+    ...((activeThread?.artifacts || []).flatMap((artifact) => artifact.versions || [])),
+    ...(lastAssistantMessage && hasArtifact(lastAssistantMessage.content)
+      ? [{ id: `detected-${lastAssistantMessage.id}`, label: "detected", content: lastAssistantMessage.content, ts: Date.now() }]
+      : []),
+  ];
 
   useEffect(() => {
     if (!activeThread) return;
@@ -590,8 +620,8 @@ export default function Home() {
       }
       if (command && key === "k") {
         event.preventDefault();
-        const input = document.getElementById("thread-search");
-        input?.focus();
+        setCommandPaletteOpen(true);
+        setCommandPaletteQuery("");
       }
     };
 
@@ -1147,6 +1177,132 @@ export default function Home() {
     document.documentElement.dataset.theme = nextTheme;
   }
 
+  function completeOnboardingView() {
+    if (!token) {
+      setMainView("conversation");
+      return;
+    }
+    const key = `ns_onboarding_seen_${token.slice(-12)}`;
+    window.localStorage.setItem(key, "1");
+    setOnboardingSeen(true);
+    setMainView("conversation");
+  }
+
+  async function shareActiveThread() {
+    if (!activeThread) return;
+    const lines = [
+      `# ${activeThread.title || "Untitled thread"}`,
+      "",
+      ...activeThread.messages.map((message) => `${message.role === "assistant" ? "Assistant" : "You"}:\n${message.content || ""}\n`),
+    ];
+    const snapshot = lines.join("\n").trim();
+    await navigator.clipboard.writeText(snapshot);
+    setSessionMessage("Thread snapshot copied to clipboard. Paste it anywhere to share context.");
+  }
+
+  function buildTransformPrompt(mode, userPrompt, previousAnswer) {
+    const directives = {
+      shorter: "Rewrite the answer to be 35-45% shorter while preserving all key facts and decisions.",
+      deeper: "Expand the answer with deeper reasoning, second-order effects, and one implementation checklist.",
+      table: "Rewrite the answer in a concise markdown table where possible, then add next actions below.",
+    };
+    const rule = directives[mode] || directives.shorter;
+    return `${userPrompt}\n\n[Transform]\n${rule}\nUse this as the source answer to transform:\n${previousAnswer}`;
+  }
+
+  async function transformAssistantMessage(messageIndex, mode) {
+    if (!activeThread) return;
+    const threadId = activeThread.id;
+    const assistantMessage = activeThread.messages[messageIndex];
+    if (!assistantMessage || assistantMessage.role !== "assistant") return;
+
+    const previousUser = [...activeThread.messages.slice(0, messageIndex)].reverse().find((m) => m.role === "user");
+    if (!previousUser) return;
+
+    const transformedPrompt = buildTransformPrompt(mode, previousUser.content, assistantMessage.content || "");
+
+    setSendLoading(true);
+    setComposerError("");
+    updateThreadById(threadId, (thread) => ({
+      ...thread,
+      messages: thread.messages.map((message, idx) => (
+        idx === messageIndex
+          ? { ...message, content: "", citations: [], streaming: true, ts: Date.now() }
+          : message
+      )),
+      updatedAt: Date.now(),
+    }));
+
+    try {
+      await requestAssistantAndStream(transformedPrompt, threadId, assistantMessage.id);
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        setComposerError("Quick edit failed. Try again in a moment.");
+      }
+    } finally {
+      generationAbortRef.current = null;
+      if (streamTimerRef.current) {
+        window.clearInterval(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+      setSendLoading(false);
+    }
+  }
+
+  function branchFromMessage(messageIndex) {
+    if (!activeThread) return;
+    const source = activeThread;
+    const message = source.messages[messageIndex];
+    if (!message) return;
+
+    const branch = createThread(`${source.title || "Thread"} • branch`, source.projectId);
+    branch.messages = source.messages.slice(0, messageIndex + 1).map((item) => ({ ...item }));
+    branch.notes = source.notes || "";
+    branch.attachments = [...(source.attachments || [])];
+    branch.linkCards = [...(source.linkCards || [])];
+    branch.artifacts = [...(source.artifacts || [])];
+
+    setThreads((current) => [branch, ...current]);
+    setActiveThreadId(branch.id);
+    setMainView("conversation");
+  }
+
+  function createArtifactFromMessage(messageIndex) {
+    if (!activeThread) return;
+    const sourceMessage = activeThread.messages[messageIndex];
+    if (!sourceMessage || sourceMessage.role !== "assistant" || !sourceMessage.content?.trim()) return;
+
+    const artifact = {
+      id: safeId(),
+      title: `Artifact ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+      createdFromMessageId: sourceMessage.id,
+      createdAt: Date.now(),
+      versions: [
+        {
+          id: safeId(),
+          label: "v1",
+          content: sourceMessage.content,
+          ts: Date.now(),
+        },
+      ],
+    };
+
+    updateThreadById(activeThread.id, (thread) => ({
+      ...thread,
+      artifacts: [artifact, ...(thread.artifacts || [])],
+      updatedAt: Date.now(),
+    }));
+    setRailTab("artifact");
+    setRailOpen(true);
+  }
+
+  function handleSourceOpen(source, index) {
+    const key = source?.id || source?.title || `source-${index + 1}`;
+    setSourceFocusKey(key);
+    setRailTab("sources");
+    setRailOpen(true);
+  }
+
   function applyFollowupSuggestion(suggestion, messageContent) {
     const trimmedSuggestion = suggestion.trim();
     const excerpt = (messageContent || "").trim().slice(0, 240);
@@ -1192,10 +1348,58 @@ export default function Home() {
     setComposerModel(model);
   }
 
+  const commandPaletteActions = [
+    {
+      id: "new-thread",
+      label: "New thread",
+      run: () => handleNewThread(),
+    },
+    {
+      id: "open-library",
+      label: "Open library",
+      run: () => setMainView("library"),
+    },
+    {
+      id: "open-onboarding",
+      label: "Open onboarding",
+      run: () => setMainView("onboarding"),
+    },
+    {
+      id: "toggle-pin-thread",
+      label: activeThread?.pinned ? "Unpin current thread" : "Pin current thread",
+      run: () => activeThread && setThreadPinned(activeThread.id, !activeThread.pinned),
+    },
+    {
+      id: "open-artifacts",
+      label: "Open artifact rail",
+      run: () => {
+        setRailTab("artifact");
+        setRailOpen(true);
+      },
+    },
+    {
+      id: "save-template",
+      label: "Save thread as template",
+      run: () => saveActiveThreadAsTemplate(),
+    },
+    {
+      id: "share-thread",
+      label: "Share current thread",
+      run: () => {
+        shareActiveThread();
+      },
+    },
+  ];
+
+  const filteredPaletteActions = commandPaletteActions.filter((action) => {
+    if (!commandPaletteQuery.trim()) return true;
+    return action.label.toLowerCase().includes(commandPaletteQuery.toLowerCase().trim());
+  });
+
   if (sessionChecking) {
     return (
       <main>
-        <section className="panel" style={{ maxWidth: 560, margin: "24px auto" }}>
+        <section className="panel auth-panel">
           <h1>Noble Savage OS</h1>
           <p className="notice">Restoring secure session and checking the AI console...</p>
         </section>
@@ -1206,10 +1410,10 @@ export default function Home() {
   if (!token) {
     return (
       <main>
-        <section className="panel" style={{ maxWidth: 560, margin: "24px auto" }}>
+        <section className="panel auth-panel">
           <h1>Noble Savage OS</h1>
           <p className="notice">Sign in to activate your AI-operated command center.</p>
-          <form onSubmit={submitAuth} className="shell" style={{ marginTop: 12 }}>
+          <form onSubmit={submitAuth} className="shell u-mt-3">
             <div className="controls">
               <button type="button" className={mode === "login" ? "primary" : ""} onClick={() => setMode("login")}>
                 Login
@@ -1241,12 +1445,12 @@ export default function Home() {
               required
             />
             {mode === "register" ? (
-              <p className="notice" style={{ margin: 0 }}>
+              <p className="notice u-m0">
                 Use 12+ characters with upper, lower, number, and symbol.
               </p>
             ) : null}
-            {sessionMessage ? <p className="status-error" style={{ margin: 0 }}>{sessionMessage}</p> : null}
-            {error ? <p className="status-error" style={{ margin: 0 }}>{error}</p> : null}
+            {sessionMessage ? <p className="status-error u-m0">{sessionMessage}</p> : null}
+            {error ? <p className="status-error u-m0">{error}</p> : null}
             <button className="primary" type="submit" disabled={authLoading}>
               {mode === "register" ? "Create account" : "Sign in"}
             </button>
@@ -1313,7 +1517,7 @@ export default function Home() {
               className="new-thread"
               onClick={() => setTemplateMenuOpen((value) => !value)}
             >
-              <span>New thread</span>
+              <span>Start new thread</span>
               {!leftCollapsed ? <span className="shortcut">⌘N</span> : null}
             </button>
             {templateMenuOpen && !leftCollapsed ? (
@@ -1333,7 +1537,7 @@ export default function Home() {
                     <span>{template.name}</span>
                     <small>{template.projectName}</small>
                   </button>
-                )) : <p className="muted">No templates yet. Save any thread as template.</p>}
+                )) : <p className="muted">No templates yet. Save any thread to create your first template.</p>}
               </div>
             ) : null}
           </div>
@@ -1343,7 +1547,16 @@ export default function Home() {
               className={`ghost ${mainView === "library" ? "active-tab" : ""}`}
               onClick={() => setMainView("library")}
             >
-              Library dashboard
+              Library
+            </button>
+          ) : null}
+          {!leftCollapsed ? (
+            <button
+              type="button"
+              className={`ghost ${mainView === "onboarding" ? "active-tab" : ""}`}
+              onClick={() => setMainView("onboarding")}
+            >
+              {onboardingSeen ? "Onboarding" : "Complete onboarding"}
             </button>
           ) : null}
           {!leftCollapsed ? (
@@ -1392,7 +1605,7 @@ export default function Home() {
                       <span>{thread.title}</span>
                     )}
                   </div>
-                )) : <p className="muted">No active threads yet.</p>}
+                )) : <p className="muted">No pinned threads yet.</p>}
               </div>
             </div>
 
@@ -1440,7 +1653,7 @@ export default function Home() {
                           <span>{thread.title}</span>
                         )}
                       </div>
-                    )) : <p className="muted">None</p>}
+                    )) : <p className="muted">No threads here yet.</p>}
                   </div>
                 ) : null}
               </div>
@@ -1453,7 +1666,7 @@ export default function Home() {
                   className="section-toggle"
                   onClick={() => setHistoryCollapsed((prev) => ({ ...prev, archived: !prev.archived }))}
                 >
-                  <span>Archived Matches</span>
+                  <span>Archived matches</span>
                   <span>{historyCollapsed.archived ? "+" : "-"}</span>
                 </button>
                 {!historyCollapsed.archived ? (
@@ -1469,10 +1682,10 @@ export default function Home() {
                             selectThread(thread.id);
                           }}
                         >
-                          Restore
+                          Restore thread
                         </button>
                       </div>
-                    )) : <p className="muted">No archived matches.</p>}
+                    )) : <p className="muted">No archived threads match this search.</p>}
                   </div>
                 ) : null}
               </div>
@@ -1482,15 +1695,15 @@ export default function Home() {
 
         <div className="library-bottom">
           <button type="button" className="ghost" onClick={() => setMenuOpen((v) => !v)}>
-            User menu
+            Account
           </button>
           <button type="button" className="ghost" onClick={toggleTheme}>
             Theme: {theme}
           </button>
           <button type="button" className="ghost" onClick={() => logout()}>
-            Settings / Logout
+            Settings and logout
           </button>
-          {menuOpen ? <p className="muted">Profile, billing, and shortcuts are available here.</p> : null}
+          {menuOpen ? <p className="muted">Profile, billing, and shortcuts live here.</p> : null}
         </div>
       </aside>
 
@@ -1558,7 +1771,7 @@ export default function Home() {
               Archive
             </button>
             <button type="button" className="ghost" onClick={saveActiveThreadAsTemplate}>Save as template</button>
-            <button type="button" className="ghost">Share</button>
+            <button type="button" className="ghost" onClick={shareActiveThread}>Share</button>
             <button type="button" className="ghost">Menu</button>
           </div>
         </header>
@@ -1589,10 +1802,17 @@ export default function Home() {
                 onPickUpload={openUploadPicker}
                 formatBytes={formatBytes}
               />
+            ) : mainView === "onboarding" ? (
+              <section className="panel">
+                <div className="controls u-mb-2">
+                  <button type="button" className="primary" onClick={completeOnboardingView}>Return to conversation</button>
+                </div>
+                <OnboardingPanel token={token} onAuthError={() => logout("Your session expired. Please sign in again.")} />
+              </section>
             ) : !activeMessages.length ? (
               <section className="empty-state">
-                <h2>Start with intent, not noise.</h2>
-                <p className="notice">Pick a starter or a use-case chip to begin this thread.</p>
+                <h2>Start with intent.</h2>
+                <p className="notice">Choose a starter prompt or use-case chip to open this thread with momentum.</p>
                 <div className="starter-grid">
                   {STARTER_PROMPTS.map((prompt) => (
                     <button key={prompt} type="button" className="starter-card" onClick={() => applyStarterPrompt(prompt)}>
@@ -1616,9 +1836,13 @@ export default function Home() {
                 onOpenAttachment={openFilePreview}
                 isStreaming={sendLoading}
                 onRegenerate={regenerateAssistantFrom}
+                onTransform={transformAssistantMessage}
                 onEditSave={editUserMessageAndRegenerate}
                 onThumb={handleMessageThumb}
                 onMoreAction={handleMessageMoreAction}
+                onBranch={branchFromMessage}
+                onCreateArtifact={createArtifactFromMessage}
+                onSourceOpen={handleSourceOpen}
                 onFollowup={applyFollowupSuggestion}
                 scrollHostRef={messagesFrameRef}
               />
@@ -1719,7 +1943,7 @@ export default function Home() {
                   }}
                 />
                 <div className="composer-under">
-                  {composerFocused ? <span className="hint">⌘+Enter to send, Shift+Enter for newline</span> : <span />}
+                  {composerFocused ? <span className="hint">Cmd/Ctrl+Enter sends. Shift+Enter adds a new line.</span> : <span />}
                   <div className="controls">
                     <select value={uploadCategory} onChange={(e) => setUploadCategory(e.target.value)} aria-label="Upload type filter">
                       <option value="documents">Documents</option>
@@ -1739,9 +1963,9 @@ export default function Home() {
                   <option value="opus">Claude 3 Opus</option>
                 </select>
                 <select value={activeTool} onChange={(e) => setActiveTool(e.target.value)} aria-label="Tools selector">
-                  <option value="search">Search</option>
+                      <option value="search">Web search</option>
                   <option value="vision">Vision</option>
-                  <option value="code">Code</option>
+                      <option value="code">Code assist</option>
                   <option value="canvas">Canvas</option>
                 </select>
                 <button
@@ -1757,9 +1981,9 @@ export default function Home() {
             </div>
 
             <div className="composer-states">
-              <span className={`state-chip ${!composerText.trim() && !files.length && !sendLoading ? "on" : ""}`}>empty</span>
+              <span className={`state-chip ${!composerText.trim() && !files.length && !sendLoading ? "on" : ""}`}>idle</span>
               <span className={`state-chip ${composerFocused ? "on" : ""}`}>focused</span>
-              <span className={`state-chip ${files.length > 0 ? "on" : ""}`}>with-attachment</span>
+              <span className={`state-chip ${files.length > 0 ? "on" : ""}`}>attachments</span>
               <span className={`state-chip ${sendLoading ? "on" : ""}`}>generating</span>
             </div>
           </div>
@@ -1799,17 +2023,49 @@ export default function Home() {
                 <button type="button" onClick={() => openUploadPicker("artifact")}>Attach file to artifact</button>
               </div>
               {artifactItems.length ? artifactItems.map((artifact, idx) => (
-                <pre key={`${idx}-${artifact.slice(0, 24)}`} className="rail-pre">{artifact}</pre>
-              )) : <p className="muted">No artifact detected in this thread yet.</p>}
+                <article key={artifact.id || `${idx}-${(artifact.content || "").slice(0, 24)}`} className="rail-card">
+                  <div className="controls">
+                    <strong>{artifact.label || `v${idx + 1}`}</strong>
+                    <small className="muted">{artifact.ts ? new Date(artifact.ts).toLocaleString() : ""}</small>
+                  </div>
+                  <pre className="rail-pre">{artifact.content || ""}</pre>
+                  <div className="controls">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComposerText(artifact.content || "");
+                        setMainView("conversation");
+                      }}
+                    >
+                      Insert into composer
+                    </button>
+                    <button type="button" onClick={() => navigator.clipboard.writeText(artifact.content || "")}>Copy artifact</button>
+                  </div>
+                </article>
+              )) : <p className="muted">No artifacts yet. Create one from any assistant message.</p>}
             </>
           ) : null}
 
           {railTab === "sources" ? (
-            sourceItems.length ? sourceItems.map((source) => (
-              <article key={source.id || source.title} className="rail-card">
-                <strong>{source.title}</strong>
-              </article>
-            )) : <p className="muted">No citations detected yet.</p>
+            sourceItems.length ? sourceItems.map((source, idx) => {
+              const key = source.id || source.title || `source-${idx + 1}`;
+              let domain = "source";
+              try {
+                domain = source.url ? new URL(source.url).hostname : "source";
+              } catch {
+                domain = "source";
+              }
+              return (
+                <article key={key} className={`rail-card ${sourceFocusKey === key ? "active-tab" : ""}`}>
+                  <strong>{source.title || `Source ${idx + 1}`}</strong>
+                  <p className="muted">{domain}</p>
+                  <p className="muted">{source.excerpt || "No excerpt available for this source."}</p>
+                  {source.url ? (
+                    <a href={source.url} target="_blank" rel="noreferrer">Open source</a>
+                  ) : null}
+                </article>
+              );
+            }) : <p className="muted">No sources yet. Ask for a cited response to populate this panel.</p>
           ) : null}
 
           {railTab === "files" ? (
@@ -1841,7 +2097,7 @@ export default function Home() {
                   </article>
                 ))}
               </>
-            ) : <p className="muted">No files in workspace yet.</p>
+            ) : <p className="muted">No files yet. Upload files from the composer or library.</p>
           ) : null}
 
           {railTab === "notes" ? (
@@ -2005,8 +2261,43 @@ export default function Home() {
 
       {!railOpen ? (
         <button type="button" className="workspace-trigger" onClick={() => setRailOpen(true)}>
-          Open Workspace
+          Open workspace rail
         </button>
+      ) : null}
+
+      {commandPaletteOpen ? (
+        <div className="lightbox" onClick={() => setCommandPaletteOpen(false)}>
+          <div className="lightbox-content command-palette" onClick={(e) => e.stopPropagation()}>
+            <input
+              autoFocus
+              value={commandPaletteQuery}
+              onChange={(e) => setCommandPaletteQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && filteredPaletteActions[0]) {
+                  e.preventDefault();
+                  filteredPaletteActions[0].run();
+                  setCommandPaletteOpen(false);
+                }
+              }}
+              placeholder="Search commands. Press Enter to run the top result."
+            />
+            <div className="command-palette-list">
+              {filteredPaletteActions.length ? filteredPaletteActions.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  className="command-palette-item"
+                  onClick={() => {
+                    action.run();
+                    setCommandPaletteOpen(false);
+                  }}
+                >
+                  {action.label}
+                </button>
+              )) : <p className="muted">No command matches that query.</p>}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <input

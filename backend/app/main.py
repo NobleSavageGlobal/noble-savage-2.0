@@ -43,6 +43,7 @@ from .compendium_store import (
     recommend_study,
     seed_compendium_defaults,
 )
+from .domain_intelligence import analyze_document, intelligence_brief_markdown
 from .onboarding import handle_turn
 from .knowledge_ingest import build_knowledge_payloads, parse_document
 from .schemas import (
@@ -332,6 +333,7 @@ async def upload_knowledge(
     failed_files = 0
     total_entries_created = 0
     uploaded: list[dict[str, Any]] = []
+    intelligence_reports: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
 
     for file in files:
@@ -340,18 +342,39 @@ async def upload_knowledge(
             data = await file.read()
             parsed = parse_document(filename, file.content_type, data)
             payloads = build_knowledge_payloads(parsed)
+            intelligence = analyze_document(parsed.title, parsed.content)
+            intelligence_payload = {
+                "title": f"{parsed.title} (Intelligence Brief)",
+                "content": intelligence_brief_markdown(intelligence),
+                "source": parsed.source,
+                "tags": list(dict.fromkeys([*(parsed.tags or []), "intelligence", intelligence.domain, intelligence.doc_type, intelligence.severity.lower()])),
+            }
 
             for payload in payloads:
                 create_knowledge(user["id"], payload)
+            create_knowledge(user["id"], intelligence_payload)
 
             successful_files += 1
-            total_entries_created += len(payloads)
+            total_entries_created += len(payloads) + 1
             uploaded.append(
                 {
                     "filename": filename,
-                    "entries_created": len(payloads),
+                    "entries_created": len(payloads) + 1,
                     "warnings": parsed.warnings,
                     "ocr_used": parsed.ocr_used,
+                }
+            )
+            intelligence_reports.append(
+                {
+                    "filename": filename,
+                    "doc_type": intelligence.doc_type,
+                    "domain": intelligence.domain,
+                    "severity": intelligence.severity,
+                    "deadline": intelligence.deadline,
+                    "diagnosis": intelligence.diagnosis,
+                    "action": intelligence.action,
+                    "risk": intelligence.risk,
+                    "authorities": intelligence.authorities,
                 }
             )
         except ValueError as exc:
@@ -367,6 +390,7 @@ async def upload_knowledge(
         "failed_files": failed_files,
         "total_entries_created": total_entries_created,
         "uploaded": uploaded,
+        "intelligence_reports": intelligence_reports,
         "errors": errors,
     }
 
@@ -392,6 +416,7 @@ async def assistant_query(
             citations,
             operational_context=_build_operational_snapshot(user["id"]),
             proactive=False,
+            mode=payload.mode,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -411,6 +436,7 @@ async def assistant_briefing(user: dict[str, Any] = Depends(current_user)) -> As
             citations,
             operational_context=snapshot,
             proactive=True,
+            mode="life_plan",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -12,3 +12,5 @@ frontend/out/
 backend/noble_savage.db
 backend/.env
 .env
+frontend/.env.local
+.vscode/

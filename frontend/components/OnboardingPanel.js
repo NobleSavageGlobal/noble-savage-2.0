@@ -81,11 +81,11 @@ export default function OnboardingPanel({ token, onAuthError }) {
       <div className="onboarding-head">
         <h2>Onboarding Bot</h2>
         <button onClick={resetFlow} disabled={loading}>
-          Restart
+          Restart flow
         </button>
       </div>
 
-      <p className="notice">One sharp question at a time. Confirm or revise each proposal before it lands.</p>
+      <p className="notice">One focused question at a time. Confirm or revise each proposal before it is saved.</p>
       {error ? <p className="status-error">{error}</p> : null}
 
       {turn ? (
@@ -117,26 +117,26 @@ export default function OnboardingPanel({ token, onAuthError }) {
           ) : null}
         </>
       ) : (
-        <p className="notice">Loading onboarding thread...</p>
+        <p className="notice">Loading onboarding context...</p>
       )}
 
-      <form onSubmit={onSubmit} className="controls" style={{ marginTop: 10 }}>
+      <form onSubmit={onSubmit} className="controls u-mt-2">
         <input
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
-          placeholder="Answer in plain language"
-          style={{ flex: 1, minWidth: 220 }}
+          placeholder="Answer naturally. Keep it concrete."
+          className="u-field-grow"
         />
         <button className="primary" type="submit" disabled={loading}>
-          Send answer
+          Continue
         </button>
       </form>
 
-      <div className="controls" style={{ marginTop: 8 }}>
+      <div className="controls u-mt-2">
         <button onClick={() => sendTurn("yes")} disabled={loading}>
-          Confirm
+          Confirm proposal
         </button>
-        <button onClick={() => sendTurn("revise")} disabled={loading}>Revise</button>
+        <button onClick={() => sendTurn("revise")} disabled={loading}>Request revision</button>
       </div>
     </section>
   );

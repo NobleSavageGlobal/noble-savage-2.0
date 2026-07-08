@@ -118,6 +118,18 @@ This prints:
 - `POST /api/assistant/query`
 - `WS /ws/board`
 
+Domain intelligence upgrades now active:
+
+- `POST /api/assistant/query` accepts optional `mode`:
+	- `general` | `credit` | `tax` | `accounting` | `budget` | `life_plan`
+- `POST /api/knowledge/upload` now auto-generates one additional
+	`Intelligence Brief` knowledge entry per uploaded file with:
+	- document type classification
+	- domain routing
+	- severity + deadline signal
+	- diagnosis/action/risk scaffold
+	- draft response template
+
 Compendium module (token required):
 
 - `GET /comp/scholars`

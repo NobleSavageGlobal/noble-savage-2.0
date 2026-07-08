@@ -218,6 +218,7 @@ class KnowledgeOut(BaseModel):
 
 class AssistantQueryIn(BaseModel):
     question: str = Field(min_length=1)
+    mode: Literal["general", "credit", "tax", "accounting", "budget", "life_plan"] | None = None
 
 
 class AssistantQueryOut(BaseModel):

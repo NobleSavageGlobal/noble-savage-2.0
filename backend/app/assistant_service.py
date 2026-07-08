@@ -4,6 +4,13 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from .domain_intelligence import (
+    OPERATOR_DOSSIER,
+    ORCHESTRATOR_DOMAIN_UPGRADE_BLOCK,
+    domain_context_block,
+    infer_domain_from_question,
+)
+
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -118,17 +125,27 @@ def build_operational_context(snapshot: str | None) -> str:
     return snapshot.strip()
 
 
+def build_domain_overlay(question: str, mode: str | None) -> tuple[str, str]:
+    active_domain = infer_domain_from_question(question, requested_mode=mode)
+    return active_domain, domain_context_block(active_domain)
+
+
 async def query_openrouter(
     question: str,
     citations: list[dict[str, Any]],
     operational_context: str | None = None,
     proactive: bool = False,
+    mode: str | None = None,
 ) -> str:
     context = build_context(citations)
     live_context = build_operational_context(operational_context)
+    active_domain, domain_overlay = build_domain_overlay(question, mode)
     operating_contract = f"{ASSISTANT_OPERATING_CONTRACT}\n\n{PROACTIVE_OPERATING_CONTRACT}" if proactive else ASSISTANT_OPERATING_CONTRACT
     system_prompt = (
         f"{operating_contract}\n\n"
+        f"{ORCHESTRATOR_DOMAIN_UPGRADE_BLOCK}\n\n"
+        f"{domain_overlay}\n\n"
+        f"{OPERATOR_DOSSIER}\n\n"
         "Use the provided knowledge context as primary grounding for concrete facts. "
         "If the context is missing key facts, continue with best-effort tactical guidance and call out the exact missing facts needed to improve confidence."
     )
@@ -160,10 +177,13 @@ async def query_openrouter(
                 "role": "user",
                 "content": (
                     f"Question:\n{question}\n\n"
+                    f"Requested mode:\n{mode or 'auto'}\n"
+                    f"Resolved mode:\n{active_domain}\n\n"
                     f"Knowledge Context:\n{context}\n\n"
                     f"Live Board Snapshot:\n{live_context}\n\n"
                     "Return a direct solution first, then immediate actions. "
-                    "For decision-heavy items include confidence (0-100), second-order consequence, and one critical risk."
+                    "For decision-heavy items include confidence (0-100), second-order consequence, and one critical risk. "
+                    "In regulated topics follow: Diagnosis -> Authority -> Action -> Risk -> Next Steps."
                 ),
             },
         ],

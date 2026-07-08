@@ -212,7 +212,7 @@ export default function AssistantPanel({ token, onAuthError }) {
       {error ? <p className="status-error">{error}</p> : null}
       {actionNote ? <p className="notice">{actionNote}</p> : null}
 
-      <article className="task-row" style={{ marginTop: 10 }}>
+      <article className="task-row u-mt-2">
         <strong>Proactive brief</strong>
         {briefLoading ? <div className="notice">Refreshing live brief...</div> : null}
         {briefError ? <div className="status-error">{briefError}</div> : null}
@@ -222,7 +222,7 @@ export default function AssistantPanel({ token, onAuthError }) {
         </div>
       </article>
 
-      <div className="controls" style={{ marginTop: 8 }}>
+      <div className="controls u-mt-2">
         {QUICK_PROMPTS.map((prompt) => (
           <button key={prompt} type="button" onClick={() => setQuestion(prompt)}>
             {prompt.slice(0, 48)}...
@@ -230,30 +230,30 @@ export default function AssistantPanel({ token, onAuthError }) {
         ))}
       </div>
 
-      <form onSubmit={addEntry} className="shell" style={{ marginTop: 8 }}>
+      <form onSubmit={addEntry} className="shell u-mt-2">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Teach the assistant a useful fact" />
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Paste the fact, note, or reference the assistant should use"
           rows={4}
-          style={{ border: "1px solid var(--line)", borderRadius: 9, padding: 10 }}
+          className="field-textarea"
         />
         <button className="primary" type="submit">Save knowledge</button>
       </form>
 
-      <form onSubmit={askAssistant} className="controls" style={{ marginTop: 12 }}>
+      <form onSubmit={askAssistant} className="controls u-mt-3">
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="State the problem, decision, or command"
-          style={{ flex: 1, minWidth: 220 }}
+          className="u-field-grow"
         />
         <button className="primary" type="submit" disabled={loading}>Ask</button>
       </form>
 
       {answer ? (
-        <article className="task-row" style={{ marginTop: 10 }}>
+        <article className="task-row u-mt-2">
           <strong>AI executive brief</strong>
           <div>{answer}</div>
           <div className="controls">
@@ -265,7 +265,7 @@ export default function AssistantPanel({ token, onAuthError }) {
       ) : null}
 
       {citations.length ? (
-        <article className="task-row" style={{ marginTop: 10 }}>
+        <article className="task-row u-mt-2">
           <strong>Citations used</strong>
           {citations.map((c) => (
             <div key={c.id} className="notice">- {c.title}</div>
@@ -273,7 +273,7 @@ export default function AssistantPanel({ token, onAuthError }) {
         </article>
       ) : null}
 
-      <div className="notice" style={{ marginTop: 10 }}>
+      <div className="notice u-mt-2">
         Knowledge entries: {knowledge.length} | Workstreams loaded: {workstreams.length}
       </div>
     </section>

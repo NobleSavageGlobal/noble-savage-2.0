@@ -28,6 +28,15 @@
   --on-accent: #ffffff;
   --surface-2: #eef4fb;
   --danger: #b91c1c;
+  --radius-control: 12px;
+  --radius-card: 12px;
+  --radius-menu: 12px;
+  --radius-pill: 999px;
+  --pad-control-y: var(--space-2);
+  --pad-control-x: var(--space-3);
+  --warn-bg: color-mix(in oklab, var(--panel) 90%, #f59e0b);
+  --warn-border: color-mix(in oklab, var(--line) 65%, #f59e0b);
+  --warn-ink: color-mix(in oklab, var(--ink) 70%, #92400e);
 }
 
 html[data-theme="dark"] {
@@ -136,7 +145,7 @@ h3 {
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: var(--panel);
   padding: 14px;
 }
@@ -160,7 +169,7 @@ h3 {
 
 .task-row {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   padding: 10px;
   margin-bottom: 10px;
   display: grid;
@@ -195,8 +204,8 @@ select,
 input,
 textarea {
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  padding: var(--pad-control-y) var(--pad-control-x);
   background: var(--panel);
   color: var(--ink);
   font: inherit;
@@ -237,7 +246,7 @@ button.primary {
 
 .proposal-item {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   padding: 8px;
 }
 
@@ -506,7 +515,7 @@ button.primary {
   text-align: left;
   width: 100%;
   padding: 8px 10px;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   color: var(--ink);
   cursor: pointer;
 }
@@ -597,17 +606,17 @@ button.primary {
 .messages-frame {
   min-height: 0;
   overflow: auto;
-  padding: var(--space-6) var(--space-6) 120px;
+  padding: var(--space-8) var(--space-7) 140px;
 }
 
 .messages-inner {
-  max-width: 720px;
+  max-width: 860px;
   margin: 0 auto;
 }
 
 .empty-state {
   border: 1px dashed var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   padding: 16px;
   background: color-mix(in oklab, var(--panel) 90%, var(--surface-2));
 }
@@ -624,7 +633,7 @@ button.primary {
 
 .starter-card {
   text-align: left;
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   border: 1px solid var(--line);
   padding: 12px;
   background: var(--panel);
@@ -702,7 +711,7 @@ button.primary {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: var(--panel);
   padding: 10px;
   transition: border-color 180ms ease, box-shadow 180ms ease;
@@ -875,15 +884,15 @@ button.primary {
 }
 
 .send-or-stop.is-stop {
-  background: color-mix(in oklab, var(--panel) 95%, #f97316);
-  border-color: #fb923c;
-  color: #7c2d12;
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-ink);
 }
 
 .send-or-stop.is-stop:hover {
-  background: #fecaca;
-  border-color: #ef4444;
-  color: #7f1d1d;
+  background: color-mix(in oklab, var(--warn-bg) 85%, var(--panel));
+  border-color: var(--warn-border);
+  color: var(--warn-ink);
 }
 
 .stop-square {
@@ -918,28 +927,43 @@ button.primary {
 
 .message-list-advanced {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-7);
 }
 
 .message-shell {
   position: relative;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border-radius: 14px;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-radius: var(--radius-card);
   border: 1px solid var(--line);
   background: var(--panel);
 }
 
 .message-shell.user {
   background: var(--surface-2);
-  margin-left: 36px;
+  margin-left: 52px;
   justify-self: end;
 }
 
 .message-shell.assistant {
-  margin-right: 16px;
+  margin-right: 26px;
+  border-color: color-mix(in oklab, var(--accent) 24%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--surface-2) 50%, var(--panel)) 0%, var(--panel) 100%);
+  box-shadow: 0 8px 24px color-mix(in oklab, var(--ink) 8%, transparent);
+}
+
+.message-shell.assistant::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--accent) 75%, #0f766e), color-mix(in oklab, var(--accent) 28%, transparent));
 }
 
 .message-shell.user {
@@ -948,7 +972,11 @@ button.primary {
 
 .message-main {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+.assistant-main {
+  gap: var(--space-3);
 }
 
 .message-shell[data-pinned="true"] {
@@ -975,7 +1003,7 @@ button.primary {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--space-6);
+  min-height: var(--space-7);
 }
 
 .role-label {
@@ -983,6 +1011,11 @@ button.primary {
   color: var(--soft-ink);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.assistant-role-label {
+  color: color-mix(in oklab, var(--accent) 78%, var(--ink));
+  font-weight: 700;
 }
 
 .msg-time {
@@ -995,7 +1028,10 @@ button.primary {
   right: 10px;
   top: 8px;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
+  max-width: min(90%, 760px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -1034,7 +1070,7 @@ button.primary {
   border: 0;
   background: transparent;
   padding: 6px 8px;
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 .more-menu button:hover {
@@ -1044,6 +1080,86 @@ button.primary {
 .md-body {
   line-height: var(--body-line);
   font-size: var(--body-size);
+}
+
+.message-shell.assistant .md-body {
+  border: 1px solid color-mix(in oklab, var(--surface-2) 55%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--panel) 85%, var(--surface-2));
+  padding: var(--space-5);
+  line-height: 1.78;
+  font-size: var(--fs-16);
+}
+
+.message-shell.assistant .md-body > :first-child {
+  margin-top: 0;
+}
+
+.message-shell.assistant .md-body > :last-child {
+  margin-bottom: 0;
+}
+
+.message-shell.assistant .md-body > p {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+  max-width: 70ch;
+}
+
+.message-shell.assistant .md-body > ul,
+.message-shell.assistant .md-body > ol {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid color-mix(in oklab, var(--surface-2) 62%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--panel) 70%, var(--surface-2));
+}
+
+.message-shell.assistant .md-body > ul li,
+.message-shell.assistant .md-body > ol li {
+  margin: var(--space-2) 0;
+  line-height: 1.72;
+}
+
+.message-shell.assistant .md-body > blockquote {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid color-mix(in oklab, var(--accent) 26%, var(--line));
+  border-left: 4px solid color-mix(in oklab, var(--accent) 55%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--accent) 10%, var(--panel));
+  padding: var(--space-3) var(--space-4);
+}
+
+.md-heading {
+  letter-spacing: -0.01em;
+}
+
+.md-heading-l2,
+.md-heading-l3 {
+  font-size: var(--fs-18);
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.md-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--line));
+  background: color-mix(in oklab, var(--accent) 12%, var(--panel));
+  color: color-mix(in oklab, var(--accent) 82%, var(--ink));
+  font-weight: 700;
+}
+
+.md-heading-actions + ul,
+.md-heading-actions + ol {
+  border: 1px solid color-mix(in oklab, var(--accent) 25%, var(--line));
+  background: color-mix(in oklab, var(--surface-2) 80%, var(--panel));
+  border-radius: 10px;
+  padding: var(--space-2) var(--space-4);
 }
 
 .md-layout {
@@ -1131,7 +1247,211 @@ button.primary {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.message-shell.assistant .followup-row {
+  padding-top: var(--space-3);
+  border-top: 1px solid color-mix(in oklab, var(--surface-2) 60%, var(--line));
+}
+
+.message-shell.assistant .followup-chip {
+  background: color-mix(in oklab, var(--panel) 72%, var(--surface-2));
+  border-color: color-mix(in oklab, var(--surface-2) 45%, var(--line));
+  font-weight: 500;
+}
+
+.message-shell.assistant .followup-chip:hover {
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--line));
+  background: color-mix(in oklab, var(--accent) 10%, var(--panel));
+}
+
+.immediate-actions-widget {
+  border: 1px solid color-mix(in oklab, var(--accent) 28%, var(--line));
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--surface-2) 66%, var(--panel)), var(--panel));
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.immediate-actions-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: 1px solid color-mix(in oklab, var(--surface-2) 65%, var(--line));
+  padding-bottom: var(--space-2);
+}
+
+.immediate-actions-head h3 {
+  font-size: var(--fs-18);
+  color: color-mix(in oklab, var(--accent) 82%, var(--ink));
+}
+
+.immediate-actions-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.immediate-action-item {
+  border: 1px solid color-mix(in oklab, var(--surface-2) 64%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--panel) 80%, var(--surface-2));
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.immediate-action-item label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex: 1;
+  line-height: 1.6;
+}
+
+.immediate-action-item input[type="checkbox"] {
+  margin-top: 3px;
+}
+
+.immediate-action-item.done span {
+  text-decoration: line-through;
+  color: var(--soft-ink);
+}
+
+.schedule-widget,
+.analysis-widget {
+  border: 1px solid color-mix(in oklab, var(--accent) 24%, var(--line));
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--surface-2) 55%, var(--panel)), var(--panel));
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.schedule-widget-head,
+.analysis-widget-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: 1px solid color-mix(in oklab, var(--surface-2) 64%, var(--line));
+  padding-bottom: var(--space-2);
+}
+
+.schedule-widget-head h3,
+.analysis-widget-head h3 {
+  font-size: var(--fs-18);
+  color: color-mix(in oklab, var(--accent) 82%, var(--ink));
+}
+
+.schedule-list,
+.analysis-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.schedule-item {
+  border: 1px solid color-mix(in oklab, var(--surface-2) 62%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--panel) 78%, var(--surface-2));
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.schedule-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.schedule-text-wrap {
+  display: grid;
+  gap: 2px;
+}
+
+.schedule-text-wrap strong {
+  font-size: var(--fs-14);
+  color: color-mix(in oklab, var(--accent) 70%, var(--ink));
+}
+
+.schedule-item.done .schedule-text-wrap span {
+  text-decoration: line-through;
+  color: var(--soft-ink);
+}
+
+.analysis-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.analysis-tab {
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--surface-2) 58%, var(--line));
+  background: color-mix(in oklab, var(--panel) 80%, var(--surface-2));
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.analysis-tab small {
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: color-mix(in oklab, var(--surface-2) 62%, var(--panel));
+  color: var(--soft-ink);
+}
+
+.analysis-tab.active {
+  border-color: color-mix(in oklab, var(--accent) 48%, var(--line));
+  background: color-mix(in oklab, var(--accent) 13%, var(--panel));
+}
+
+.analysis-item {
+  border: 1px solid color-mix(in oklab, var(--surface-2) 62%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--panel) 76%, var(--surface-2));
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.analysis-item p {
+  margin: 0;
+  line-height: 1.66;
+}
+
+.analysis-item.flagged {
+  border-color: color-mix(in oklab, var(--accent) 56%, var(--line));
+  background: color-mix(in oklab, var(--accent) 9%, var(--panel));
+}
+
+@media (max-width: 760px) {
+  .immediate-actions-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .immediate-action-item {
+    flex-direction: column;
+  }
+
+  .schedule-widget-head,
+  .analysis-widget-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .schedule-item {
+    flex-direction: column;
+  }
 }
 
 .followup-chip {
@@ -1325,7 +1645,7 @@ button.primary {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: color-mix(in oklab, var(--surface-2) 55%, var(--panel));
   padding: 4px 10px;
   font-size: 0.78rem;
@@ -1379,7 +1699,7 @@ button.primary {
   justify-content: space-between;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   padding: 8px 10px;
   background: color-mix(in oklab, var(--surface-2) 45%, var(--panel));
 }
@@ -1392,7 +1712,7 @@ button.primary {
 
 .file-card {
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -1467,7 +1787,7 @@ button.primary {
   gap: 8px;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   padding: 8px;
 }
 
@@ -1625,6 +1945,29 @@ button.primary {
   background: var(--panel);
 }
 
+.command-palette {
+  width: min(720px, 94vw);
+  display: grid;
+  gap: 10px;
+}
+
+.command-palette input {
+  width: 100%;
+}
+
+.command-palette-list {
+  max-height: min(60vh, 440px);
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.command-palette-item {
+  text-align: left;
+  border-color: color-mix(in oklab, var(--line) 88%, var(--accent));
+  background: color-mix(in oklab, var(--surface-2) 30%, var(--panel));
+}
+
 .mobile-logout {
   display: none;
 }
@@ -1724,6 +2067,44 @@ button.primary {
   bottom: var(--space-4);
 }
 
+.auth-panel {
+  max-width: 560px;
+  margin: var(--space-6) auto;
+}
+
+.u-m0 {
+  margin: 0;
+}
+
+.u-mt-2 {
+  margin-top: var(--space-2);
+}
+
+.u-mt-3 {
+  margin-top: var(--space-3);
+}
+
+.u-my-3 {
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.u-field-grow {
+  flex: 1;
+  min-width: 220px;
+}
+
+.u-field-wide {
+  flex: 1;
+  min-width: 240px;
+}
+
+.field-textarea {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: var(--pad-control-y) var(--pad-control-x);
+}
+
 @media (max-width: 1024px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1736,7 +2117,7 @@ button.primary {
   }
 
   .messages-frame {
-    padding: 14px 14px 120px;
+    padding: var(--space-5) var(--space-4) 120px;
   }
 
   .composer-wrap {
@@ -1788,4 +2169,8 @@ html[data-density="compact"] .empty-state {
 
 html[data-density="compact"] .message-shell {
   padding: var(--space-3);
+}
+
+html[data-density="compact"] .messages-frame {
+  padding: var(--space-6) var(--space-5) 132px;
 }

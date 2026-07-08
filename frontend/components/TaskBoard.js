@@ -207,12 +207,12 @@ export default function TaskBoard({ token, onAuthError }) {
           </p>
           {error ? <p className="status-error">{error}</p> : null}
 
-          <form onSubmit={submitTask} className="controls" style={{ margin: "12px 0" }}>
+          <form onSubmit={submitTask} className="controls u-my-3">
             <input
               value={form.task}
               onChange={(e) => setForm((v) => ({ ...v, task: e.target.value }))}
               placeholder="One concrete move the assistant should track"
-              style={{ minWidth: 240, flex: 1 }}
+              className="u-field-wide"
             />
             <select
               value={form.ws}
@@ -269,7 +269,7 @@ export default function TaskBoard({ token, onAuthError }) {
 
         <aside className="panel">
           <h2>Live Counters</h2>
-          <div className="metrics" style={{ marginTop: 10 }}>
+          <div className="metrics u-mt-2">
             <div className="metric">
               <small>This Week</small>
               <strong>{counters.thisWeek}</strong>
