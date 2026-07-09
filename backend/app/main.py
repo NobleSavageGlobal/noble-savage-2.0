@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import date
 from datetime import datetime, timezone
 import logging
@@ -107,6 +108,8 @@ from .store import (
     save_onboarding,
     search_knowledge,
     reembed_knowledge_file,
+    delete_knowledge_file,
+    knowledge_stats,
     create_assistant_log,
     update_assistant_feedback,
     update_knowledge_embedding,
@@ -143,8 +146,19 @@ class ConnectionManager:
             self.disconnect(client, user_id)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    production_like = bool(os.getenv("RAILWAY_ENVIRONMENT")) or os.getenv("ENV") == "production"
+    if production_like and not JWT_SECRET_FROM_ENV:
+        raise RuntimeError("JWT_SECRET must be explicitly configured in production environments.")
+    init_db()
+    init_compendium_db()
+    seed_compendium_defaults()
+    yield
+
+
 manager = ConnectionManager()
-app = FastAPI(title="Noble Savage API", version="0.1.0")
+app = FastAPI(title="Noble Savage API", version="1.0.0", lifespan=lifespan)
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
 AUTH_RATE_LIMIT_WINDOW_SEC = int(os.getenv("AUTH_RATE_LIMIT_WINDOW_SEC", "60"))
@@ -193,16 +207,6 @@ def _enforce_auth_rate_limit(request: Request) -> None:
         raise HTTPException(status_code=429, detail="Too many authentication attempts. Please retry shortly.")
     attempts.append(now)
 
-
-@app.on_event("startup")
-def on_startup() -> None:
-    production_like = bool(os.getenv("RAILWAY_ENVIRONMENT")) or os.getenv("ENV") == "production"
-    if production_like and not JWT_SECRET_FROM_ENV:
-        raise RuntimeError("JWT_SECRET must be explicitly configured in production environments.")
-
-    init_db()
-    init_compendium_db()
-    seed_compendium_defaults()
 
 
 def current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict[str, Any]:
@@ -497,6 +501,21 @@ async def upload_knowledge(
         "intelligence_reports": intelligence_reports,
         "errors": errors,
     }
+
+
+@app.get("/api/knowledge/stats")
+async def get_knowledge_stats(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return knowledge_stats(user["id"])
+
+
+@app.delete("/api/knowledge/file/{file_id}")
+async def delete_knowledge_by_file(
+    file_id: str, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, Any]:
+    deleted = delete_knowledge_file(user["id"], file_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="No knowledge entries found for this file")
+    return {"deleted": deleted, "file_id": file_id}
 
 
 @app.post("/api/knowledge/{knowledge_id}/reembed", response_model=KnowledgeOut)

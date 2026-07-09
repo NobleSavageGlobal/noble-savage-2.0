@@ -1,0 +1,219 @@
+/**
+ * UX Enhancement CSS
+ * Micro-interactions, transitions, and visual polish for production-grade interface.
+ * Drop into globals.css or import separately.
+ */
+
+/* ─── Smooth Transitions ────────────────────────────────────────────── */
+* {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 0.15s;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Disable transitions on specific elements to avoid jank */
+input,
+textarea,
+select {
+  transition: none;
+}
+
+/* ─── Focus States (WCAG 2.1 AA Compliant) ──────────────────────────── */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ─── Hover Elevation ────────────────────────────────────────────────── */
+button:hover:not(:disabled),
+a:hover {
+  transform: translateY(-1px);
+}
+
+/* ─── Loading States ────────────────────────────────────────────────── */
+.loading {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ─── Skeleton Loader ────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    color-mix(in oklab, var(--surface-2) 50%, transparent) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ─── Smooth Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--line) 80%, transparent);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line);
+}
+
+/* ─── Disabled States ────────────────────────────────────────────────── */
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Better Text Selection ────────────────────────────────────────── */
+::selection {
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* ─── Smooth Form Inputs ────────────────────────────────────────────── */
+input,
+textarea,
+select {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: var(--pad-control-y) var(--pad-control-x);
+  font-family: inherit;
+  font-size: var(--body-size);
+  color: var(--ink);
+  background-color: var(--panel);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+/* ─── Tooltip-like Labels ────────────────────────────────────────────── */
+.tooltip-text {
+  position: relative;
+  cursor: help;
+  text-decoration: underline dotted var(--soft-ink);
+  text-decoration-skip-ink: auto;
+}
+
+.tooltip-text:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  background-color: var(--ink);
+  color: var(--panel);
+  border-radius: 6px;
+  font-size: var(--fs-12);
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── Card Elevation ────────────────────────────────────────────────── */
+.card {
+  background-color: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: var(--space-4);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.card:hover {
+  border-color: color-mix(in oklab, var(--line) 70%, var(--accent));
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.08);
+}
+
+/* ─── Badge Styling ────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background-color: color-mix(in oklab, var(--accent) 20%, var(--panel));
+  color: var(--accent);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ─── Success/Warning/Error States ──────────────────────────────────── */
+.status-success {
+  color: #10b981;
+  background-color: color-mix(in oklab, #10b981 12%, var(--panel));
+}
+
+.status-warning {
+  color: #f59e0b;
+  background-color: color-mix(in oklab, #f59e0b 12%, var(--panel));
+}
+
+.status-error {
+  color: var(--danger);
+  background-color: color-mix(in oklab, var(--danger) 12%, var(--panel));
+}
+
+/* ─── Keyboard-Only Focus (for accessibility) ──────────────────────── */
+.js-focus-visible:focus:not(.focus-visible) {
+  outline: none;
+}
+
+/* ─── Reduced Motion Preference ────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Print Styles ────────────────────────────────────────────────── */
+@media print {
+  button,
+  input[type="submit"],
+  input[type="button"],
+  a {
+    display: none;
+  }
+}

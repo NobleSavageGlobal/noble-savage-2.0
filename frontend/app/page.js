@@ -10,10 +10,10 @@ import { readErrorMessage } from "../lib/apiError";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 const STARTER_PROMPTS = [
-  "Map my highest-leverage move for today and what it unblocks.",
-  "Turn my scattered priorities into a hard-first execution sequence.",
-  "Draft a concise morning brief from my current board state.",
-  "Create a practical calendar for today and sequence execution blocks.",
+  "What is my single highest-leverage move today, and what does it unblock?",
+  "Sequence my open priorities hardest-first and flag anything that's blocking itself.",
+  "Generate a morning brief from my current board state — include blockers and P1 items.",
+  "Build a time-blocked calendar for today and convert it into concrete execution steps.",
 ];
 const USE_CASE_CHIPS = [
   "Daily brief",
@@ -25,10 +25,10 @@ const USE_CASE_CHIPS = [
   "Meeting prep",
 ];
 const PLACEHOLDER_EXAMPLES = [
-  "Ask: What is my one highest-leverage move right now?",
-  "Ask: Build my calendar for today and convert it into immediate actions.",
-  "Paste a client brief and ask for an execution plan.",
-  "Drop files or links to build a project-ready synthesis.",
+  "What is my single highest-leverage move right now?",
+  "Build my calendar for today and sequence it into actions I can start immediately.",
+  "Paste a brief and ask: give me a grounded execution plan.",
+  "Drop files or links — ask for a synthesis ready to act on.",
 ];
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_FILES_PER_MESSAGE = 10;
@@ -41,21 +41,21 @@ const FILE_ACCEPT = {
 };
 
 const TOOL_OPTIONS = [
-  { id: "search", label: "Search", description: "Grounded web lookup" },
-  { id: "code", label: "Code", description: "Sandboxed code reasoning" },
-  { id: "files", label: "Files", description: "Knowledge and file retrieval" },
-  { id: "calc", label: "Calc", description: "Math and financial formulas" },
-  { id: "calendar", label: "Calendar", description: "Schedule integration" },
-  { id: "email", label: "Email", description: "Draft and compose" },
+  { id: "search", label: "Search", description: "Grounded retrieval from the web" },
+  { id: "code", label: "Code", description: "Sandboxed code analysis and generation" },
+  { id: "files", label: "Files", description: "Search and cite your knowledge base" },
+  { id: "calc", label: "Calc", description: "Math, formulas, and financial models" },
+  { id: "calendar", label: "Calendar", description: "Schedule awareness and time-blocking" },
+  { id: "email", label: "Email", description: "Draft, edit, and send messages" },
 ];
 
 const PERSONAS = [
-  { id: "sovereignty", label: "Sovereignty", mode: "life_plan", description: "Multi-domain strategic advisory" },
-  { id: "credit", label: "Credit Counsel", mode: "credit", description: "FCRA/FDCPA workflows" },
-  { id: "tax", label: "Tax Strategist", mode: "tax", description: "IRC and filing posture" },
-  { id: "accounting", label: "Accountant", mode: "accounting", description: "GAAP and controls" },
-  { id: "budget", label: "Budget Operator", mode: "budget", description: "Cash flow and debt payoff" },
-  { id: "general", label: "General", mode: "general", description: "General assistant mode" },
+  { id: "sovereignty", label: "Sovereignty", mode: "life_plan", description: "Multi-domain strategic advisory across all six workstreams" },
+  { id: "credit", label: "Credit Counsel", mode: "credit", description: "FCRA and FDCPA dispute workflows" },
+  { id: "tax", label: "Tax Strategist", mode: "tax", description: "IRC analysis and filing posture" },
+  { id: "accounting", label: "Accountant", mode: "accounting", description: "GAAP, controls, and financial reporting" },
+  { id: "budget", label: "Budget Operator", mode: "budget", description: "Cash flow management and debt payoff planning" },
+  { id: "general", label: "General", mode: "general", description: "Open-ended assistant mode" },
 ];
 
 const DEFAULT_PROJECTS = [
@@ -1860,7 +1860,7 @@ export default function Home() {
       <main>
         <section className="panel auth-panel">
           <h1>Noble Savage OS</h1>
-          <p className="notice">Restoring secure session and checking the AI console...</p>
+          <p className="notice">Restoring your session&hellip;</p>
         </section>
       </main>
     );
@@ -1871,7 +1871,7 @@ export default function Home() {
       <main>
         <section className="panel auth-panel">
           <h1>Noble Savage OS</h1>
-          <p className="notice">Sign in to activate your AI-operated command center.</p>
+          <p className="notice">Your AI-operated command center. Sign in to continue.</p>
           <form onSubmit={submitAuth} className="shell u-mt-3">
             <div className="controls">
               <button type="button" className={mode === "login" ? "primary" : ""} onClick={() => setMode("login")}>
@@ -1996,7 +1996,7 @@ export default function Home() {
                     <span>{template.name}</span>
                     <small>{template.projectName}</small>
                   </button>
-                )) : <p className="muted">No templates yet. Save any thread to create your first template.</p>}
+                )) : <p className="muted">No templates yet. Save any thread to create one.</p>}
               </div>
             ) : null}
           </div>
@@ -2064,7 +2064,7 @@ export default function Home() {
                       <span>{thread.title}</span>
                     )}
                   </div>
-                )) : <p className="muted">No pinned threads yet.</p>}
+                )) : <p className="muted">No pinned threads. Star a thread to keep it here.</p>}
               </div>
             </div>
 
@@ -2112,7 +2112,7 @@ export default function Home() {
                           <span>{thread.title}</span>
                         )}
                       </div>
-                    )) : <p className="muted">No threads here yet.</p>}
+                    )) : <p className="muted">No threads yet. Start a conversation to begin.</p>}
                   </div>
                 ) : null}
               </div>
@@ -2144,7 +2144,7 @@ export default function Home() {
                           Restore thread
                         </button>
                       </div>
-                    )) : <p className="muted">No archived threads match this search.</p>}
+                    )) : <p className="muted">No archived threads match that search.</p>}
                   </div>
                 ) : null}
               </div>
@@ -2162,7 +2162,7 @@ export default function Home() {
           <button type="button" className="ghost" onClick={() => logout()}>
             Settings and logout
           </button>
-          {menuOpen ? <p className="muted">Profile, billing, and shortcuts live here.</p> : null}
+          {menuOpen ? <p className="muted">Profile, billing, and keyboard shortcuts.</p> : null}
         </div>
       </aside>
 
@@ -2276,8 +2276,8 @@ export default function Home() {
               </section>
             ) : !activeMessages.length ? (
               <section className="empty-state">
-                <h2>Start with one clear command.</h2>
-                <p className="notice">Your assistant response will appear in this conversation stream. Pick a starter, then send.</p>
+                <h2>What needs to move today?</h2>
+                <p className="notice">Pick a prompt below or type your own. Responses stream directly into this conversation.</p>
                 <div className="starter-grid">
                   {STARTER_PROMPTS.map((prompt) => (
                     <button key={prompt} type="button" className="starter-card" onClick={() => applyStarterPrompt(prompt)}>
@@ -2532,7 +2532,7 @@ export default function Home() {
                 <button type="button" className="ghost" onClick={clearInactiveKnowledge}>Clear inactive</button>
                 <button type="button" className="ghost" onClick={exportKnowledgeSummary}>Export</button>
               </div>
-              <p className="muted">Ready {knowledgeStats.ready} · Indexing {knowledgeStats.indexing} · Failed {knowledgeStats.failed} · Total {knowledgeStats.chunks} chunks · {knowledgeStats.tokens} tokens</p>
+              <p className="muted">{knowledgeStats.ready} ready &middot; {knowledgeStats.indexing} indexing &middot; {knowledgeStats.failed} failed &middot; {knowledgeStats.chunks} chunks &middot; {knowledgeStats.tokens} tokens</p>
               {workspaceFiles.length ? workspaceFiles.map((file) => (
                 <article key={file.id} className="rail-card">
                   <div className="controls">
@@ -2567,7 +2567,7 @@ export default function Home() {
                   </div>
                   {file.error ? <p className="status-error">{file.error}</p> : null}
                 </article>
-              )) : <p className="muted">No knowledge files yet. Upload a file to make responses grounded.</p>}
+              )) : <p className="muted">No files indexed yet. Upload a document to ground responses in your actual context.</p>}
             </section>
           ) : null}
 
@@ -2642,7 +2642,7 @@ export default function Home() {
             <section className="rail-section">
               <article className="rail-card">
                 <strong>Input readiness</strong>
-                <p className="muted">{readinessPassCount}/{inputReadiness.length} checks passing</p>
+                <p className="muted">{readinessPassCount} of {inputReadiness.length} checks passing</p>
                 <div className="quality-chip-row">
                   {inputReadiness.map((item) => (
                     <span key={`quality-${item.key}`} className={`input-check-chip ${item.pass ? "pass" : "warn"}`}>
@@ -2657,8 +2657,8 @@ export default function Home() {
 
               <article className="rail-card">
                 <strong>Response alignment</strong>
-                <p className="muted">Average score: {assistantAverageAlignment}% across {assistantQualityStats.total} assistant replies</p>
-                <p className="muted">Strong: {assistantQualityStats.strong} · Partial: {assistantQualityStats.partial} · Weak: {assistantQualityStats.weak}</p>
+                <p className="muted">{assistantAverageAlignment}% average across {assistantQualityStats.total} {assistantQualityStats.total === 1 ? "reply" : "replies"}</p>
+                <p className="muted">Strong: {assistantQualityStats.strong} &middot; Partial: {assistantQualityStats.partial} &middot; Weak: {assistantQualityStats.weak}</p>
               </article>
 
               <article className="rail-card">
@@ -2673,7 +2673,7 @@ export default function Home() {
                     ))}
                   </div>
                 ) : (
-                  <p className="muted">No recurring misses yet. Keep sending prompts to build signal.</p>
+                  <p className="muted">No patterns detected yet. Send more prompts to build your signal baseline.</p>
                 )}
               </article>
             </section>
@@ -2683,9 +2683,9 @@ export default function Home() {
             <section className="rail-section">
               <article className="rail-card">
                 <strong>System</strong>
-                <p className="muted">Health: {health.status}{health.degraded ? " (degraded)" : ""}</p>
+                <p className="muted">Status: {health.status}{health.degraded ? " (degraded)" : " (healthy)"}</p>
                 <p className="muted">Model: {composerModel}</p>
-                <p className="muted">Knowledge: {knowledgeStats.docs} docs · {knowledgeStats.chunks} chunks</p>
+                <p className="muted">Knowledge: {knowledgeStats.docs} {knowledgeStats.docs === 1 ? "doc" : "docs"} &middot; {knowledgeStats.chunks} chunks</p>
               </article>
               {activityLog.slice(0, 20).map((item) => (
                 <article key={item.id} className="rail-card">
@@ -2733,7 +2733,7 @@ export default function Home() {
                     <button type="button" onClick={() => navigator.clipboard.writeText(artifact.content || "")}>Copy artifact</button>
                   </div>
                 </article>
-              )) : <p className="muted">No artifacts yet. Create one from any assistant message.</p>}
+              )) : <p className="muted">No artifacts yet. Save any assistant response to create one.</p>}
             </>
           ) : null}
 
@@ -2756,7 +2756,7 @@ export default function Home() {
                   ) : null}
                 </article>
               );
-            }) : <p className="muted">No sources yet. Ask for a cited response to populate this panel.</p>
+            }) : <p className="muted">No sources yet. Ask a grounded question to populate this panel.</p>
           ) : null}
 
           {railTab === "files" ? (

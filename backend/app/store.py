@@ -1,7 +1,8 @@
 import json
 import os
+import sqlite3
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +94,16 @@ def _scope_ws_id(user_id: str, ws_id: str) -> str:
 
 def _make_engine() -> Engine:
     database_url = _normalize_database_url(DATABASE_URL)
-    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    is_sqlite = database_url.startswith("sqlite")
+    if is_sqlite:
+        # Register timezone-aware adapters to suppress Python 3.12 deprecation warnings
+        sqlite3.register_adapter(datetime, lambda dt: dt.isoformat())
+        sqlite3.register_adapter(date, lambda d: d.isoformat())
+        sqlite3.register_converter("TIMESTAMP", lambda s: datetime.fromisoformat(s.decode()).replace(tzinfo=timezone.utc))
+        sqlite3.register_converter("DATE", lambda s: date.fromisoformat(s.decode()))
+        connect_args = {"check_same_thread": False, "detect_types": sqlite3.PARSE_DECLTYPES}
+    else:
+        connect_args = {}
     return create_engine(database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
 
 
@@ -131,7 +141,7 @@ def _to_datetime(value: Any) -> datetime:
         return value
     if isinstance(value, str):
         return datetime.fromisoformat(value.replace(" ", "T"))
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def _to_date(value: Any) -> date | None:
@@ -569,7 +579,7 @@ def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Invalid workstream id for current user")
 
     task_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -614,7 +624,7 @@ def patch_task(user_id: str, task_id: str, patch: dict[str, Any]) -> dict[str, A
         merged.update({k: v for k, v in patch.items() if v is not None})
         if "ws" in patch and patch.get("ws") is not None and not _workstream_exists(user_id, patch["ws"]):
             raise ValueError("Invalid workstream id for current user")
-        merged["updated_at"] = datetime.utcnow()
+        merged["updated_at"] = datetime.now(timezone.utc)
 
         conn.execute(
             text(
@@ -837,7 +847,7 @@ def get_assistant_metrics(user_id: str, limit: int = 200) -> dict[str, Any]:
 
 def create_decision(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     record_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     recommendation = payload.get("recommendation")
     recommendation_json = None if recommendation is None else json.dumps(recommendation)
 
@@ -1041,7 +1051,7 @@ def save_onboarding(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             ),
             {"user_id": user_id},
         ).first()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         data = json.dumps(payload.get("collected", {}))
         if row:
             conn.execute(
@@ -1082,7 +1092,7 @@ def save_onboarding(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def create_knowledge(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     record_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     embedding = payload.get("embedding")
     if embedding is None:
         embedding = embed_text(f"{payload['title']}\n{payload['content']}")
@@ -1179,38 +1189,137 @@ def list_knowledge(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
     return output
 
 
+def _bm25_score(query_terms: list[str], doc_text: str, avg_doc_len: float, k1: float = 1.5, b: float = 0.75) -> float:
+    """Approximate BM25 score for a single document."""
+    doc_lower = doc_text.lower()
+    doc_words = doc_lower.split()
+    doc_len = len(doc_words) or 1
+    score = 0.0
+    for term in query_terms:
+        tf = doc_words.count(term)
+        if tf == 0:
+            continue
+        idf = 1.0  # simplified; real IDF needs corpus stats
+        numerator = tf * (k1 + 1)
+        denominator = tf + k1 * (1 - b + b * doc_len / max(avg_doc_len, 1))
+        score += idf * numerator / denominator
+    return score
+
+
 def search_knowledge(
     user_id: str, query: str, limit: int = 8, file_ids: list[str] | None = None
 ) -> list[dict[str, Any]]:
-    pool = list_knowledge(user_id, limit=200)
+    # Only search successfully indexed, non-intelligence-brief chunks for primary retrieval.
+    # Intelligence brief entries are tagged 'intelligence' and are best used as context metadata.
+    full_pool = list_knowledge(user_id, limit=500)
+    pool = [
+        item for item in full_pool
+        if item.get("status") == "indexed"
+        and "intelligence" not in (item.get("tags") or [])
+    ]
     if file_ids:
         allowed = {item for item in file_ids if item}
         pool = [item for item in pool if item.get("file_id") in allowed]
     if not pool:
-        return []
+        # Fall back to all indexed entries (including intelligence briefs) when nothing else matches
+        pool = [item for item in full_pool if item.get("status") == "indexed"]
+        if not pool:
+            return []
+
+    query_terms = [t.strip().lower() for t in query.split() if len(t.strip()) > 2]
+    avg_doc_len = sum(len((item.get("content") or "").split()) for item in pool) / max(len(pool), 1)
 
     try:
         query_embedding = embed_text(query)
     except Exception:
         query_embedding = []
 
-    scored: list[tuple[float, dict[str, Any]]] = []
+    # Hybrid scoring: alpha * cosine + (1-alpha) * bm25_normalized
+    ALPHA = 0.7  # weight vector similarity higher than keyword score
+    MAX_BM25 = 20.0  # rough normalisation ceiling
+
+    vector_scores: dict[str, float] = {}
     if query_embedding:
         for item in pool:
-            score = cosine_similarity(query_embedding, item.get("embedding") or [])
-            if score > 0:
-                scored.append((score, item))
+            sim = cosine_similarity(query_embedding, item.get("embedding") or [])
+            if sim > 0:
+                vector_scores[item["id"]] = sim
 
-    if not scored:
-        terms = [term.strip().lower() for term in query.split() if len(term.strip()) > 2]
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for item in pool:
+        haystack = f"{item['title']}\n{item['content']}\n{' '.join(item.get('tags') or [])}"
+        bm25 = _bm25_score(query_terms, haystack, avg_doc_len) if query_terms else 0.0
+        bm25_norm = min(bm25, MAX_BM25) / MAX_BM25
+        vscore = vector_scores.get(item["id"], 0.0)
+        combined = ALPHA * vscore + (1 - ALPHA) * bm25_norm
+        if combined > 0:
+            scored.append((combined, item))
+
+    if not scored and query_terms:
+        # Keyword-only last resort (when embedding unavailable)
         for item in pool:
-            haystack = f"{item['title']}\n{item['content']}\n{' '.join(item['tags'])}".lower()
-            score = sum(1 for term in terms if term in haystack)
-            if score > 0:
-                scored.append((float(score), item))
+            haystack = f"{item['title']}\n{item['content']}\n{' '.join(item.get('tags') or [])}".lower()
+            kw_score = sum(1 for term in query_terms if term in haystack)
+            if kw_score > 0:
+                scored.append((float(kw_score), item))
 
     scored.sort(key=lambda t: t[0], reverse=True)
-    return [item for _, item in scored[:limit]] if scored else pool[: min(limit, len(pool))]
+    # Deduplicate: pick the highest-scoring chunk per file when many chunks from one file rank top
+    seen_files: dict[str, int] = {}
+    results: list[dict[str, Any]] = []
+    for _, item in scored:
+        fid = item.get("file_id") or item["id"]
+        seen_files[fid] = seen_files.get(fid, 0) + 1
+        # Allow up to 3 chunks per file to keep representation but avoid flooding
+        if seen_files[fid] <= 3:
+            results.append(item)
+        if len(results) >= limit:
+            break
+    return results if results else pool[: min(limit, len(pool))]
+
+
+def delete_knowledge_file(user_id: str, file_id: str) -> int:
+    """Delete all knowledge chunks for a given file_id. Returns rows deleted."""
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("delete from knowledge where user_id = :user_id and file_id = :file_id"),
+            {"user_id": user_id, "file_id": file_id},
+        )
+    return result.rowcount
+
+
+def knowledge_stats(user_id: str) -> dict[str, Any]:
+    """Return aggregated counts by status and total tokens/chunks."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                """
+                select
+                    coalesce(status, 'indexed') as status,
+                    count(*) as cnt,
+                    coalesce(sum(token_count), 0) as tokens
+                from knowledge
+                where user_id = :user_id
+                group by coalesce(status, 'indexed')
+                """
+            ),
+            {"user_id": user_id},
+        ).all()
+    stats: dict[str, Any] = {"ready": 0, "failed": 0, "indexing": 0, "total_chunks": 0, "total_tokens": 0}
+    for row in rows:
+        m = row._mapping
+        s = (m["status"] or "indexed").lower()
+        cnt = int(m["cnt"])
+        tokens = int(m["tokens"])
+        stats["total_chunks"] += cnt
+        stats["total_tokens"] += tokens
+        if s == "indexed":
+            stats["ready"] += cnt
+        elif s == "failed":
+            stats["failed"] += cnt
+        else:
+            stats["indexing"] += cnt
+    return stats
 
 
 def reembed_knowledge_file(user_id: str, file_id: str) -> dict[str, Any]:
@@ -1250,7 +1359,7 @@ def update_knowledge_embedding(user_id: str, knowledge_id: str) -> dict[str, Any
                 "user_id": user_id,
                 "embedding": json.dumps(embedding),
                 "embedding_model": os.getenv("OPENROUTER_EMBEDDING_MODEL", "openai/text-embedding-3-small"),
-                "last_indexed_at": datetime.utcnow(),
+                "last_indexed_at": datetime.now(timezone.utc),
             },
         )
         updated = conn.execute(
@@ -1272,6 +1381,6 @@ def update_knowledge_embedding(user_id: str, knowledge_id: str) -> dict[str, Any
         "chunk_total": um.get("chunk_total"),
         "token_count": int(um.get("token_count") or 0),
         "status": "indexed",
-        "last_indexed_at": datetime.utcnow(),
+        "last_indexed_at": datetime.now(timezone.utc),
         "created_at": _to_datetime(um["created_at"]),
     }

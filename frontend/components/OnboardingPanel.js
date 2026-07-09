@@ -79,13 +79,13 @@ export default function OnboardingPanel({ token, onAuthError }) {
   return (
     <section className="panel">
       <div className="onboarding-head">
-        <h2>Onboarding Bot</h2>
+        <h2>Setup Interview</h2>
         <button onClick={resetFlow} disabled={loading}>
           Restart flow
         </button>
       </div>
 
-      <p className="notice">One focused question at a time. Confirm or revise each proposal before it is saved.</p>
+      <p className="notice">One question at a time. Confirm or edit each proposal before it is saved to your board.</p>
       {error ? <p className="status-error">{error}</p> : null}
 
       {turn ? (
@@ -117,14 +117,14 @@ export default function OnboardingPanel({ token, onAuthError }) {
           ) : null}
         </>
       ) : (
-        <p className="notice">Loading onboarding context...</p>
+        <p className="notice">Picking up where you left off&hellip;</p>
       )}
 
       <form onSubmit={onSubmit} className="controls u-mt-2">
         <input
           value={answer}
           onChange={(e) => setAnswer(e.target.value)}
-          placeholder="Answer naturally. Keep it concrete."
+          placeholder="Be specific. Concrete answers produce better board rows."
           className="u-field-grow"
         />
         <button className="primary" type="submit" disabled={loading}>

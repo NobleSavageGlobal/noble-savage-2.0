@@ -77,6 +77,11 @@ def _normalize_whitespace(value: str) -> str:
     return compact.strip()
 
 
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentence-like segments, preferring sentence boundaries over raw positions."""
+    return re.split(r"(?<=[.!?])\s+(?=[A-Z\u201c\u2018\"])", text)
+
+
 def _split_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     cleaned = _normalize_whitespace(text)
     if not cleaned:
@@ -84,23 +89,42 @@ def _split_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     if len(cleaned) <= max_chars:
         return [cleaned]
 
-    parts = re.split(r"\n\n+", cleaned)
+    # First split on paragraph breaks
+    paragraphs = re.split(r"\n\n+", cleaned)
     chunks: list[str] = []
     current = ""
-    for part in parts:
-        candidate = f"{current}\n\n{part}".strip() if current else part
+
+    for para in paragraphs:
+        candidate = f"{current}\n\n{para}".strip() if current else para
         if len(candidate) <= max_chars:
             current = candidate
             continue
 
+        # Paragraph fits in one chunk but combined doesn't — flush current
         if current:
             chunks.append(current)
             current = ""
 
-        while len(part) > max_chars:
-            chunks.append(part[:max_chars])
-            part = part[max_chars:]
-        current = part
+        # Paragraph itself is too large — split on sentence boundaries
+        if len(para) > max_chars:
+            sentences = _split_sentences(para)
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                candidate = f"{current} {sentence}".strip() if current else sentence
+                if len(candidate) <= max_chars:
+                    current = candidate
+                else:
+                    if current:
+                        chunks.append(current)
+                    # Single sentence longer than max — hard split as last resort
+                    while len(sentence) > max_chars:
+                        chunks.append(sentence[:max_chars])
+                        sentence = sentence[max_chars:]
+                    current = sentence
+        else:
+            current = para
 
     if current:
         chunks.append(current)

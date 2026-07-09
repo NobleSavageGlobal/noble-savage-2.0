@@ -207,13 +207,13 @@ export default function AssistantPanel({ token, onAuthError }) {
 
   return (
     <section className="panel">
-      <h2>AI Command Deck</h2>
+      <h2>Command Deck</h2>
       <p className="notice">Use one command and let the assistant drive the next action, ledger update, and task capture.</p>
       {error ? <p className="status-error">{error}</p> : null}
       {actionNote ? <p className="notice">{actionNote}</p> : null}
 
       <article className="task-row u-mt-2">
-        <strong>Proactive brief</strong>
+          <strong>Morning brief</strong>
         {briefLoading ? <div className="notice">Refreshing live brief...</div> : null}
         {briefError ? <div className="status-error">{briefError}</div> : null}
         {brief ? <div>{brief}</div> : <div className="notice">The assistant will surface the highest-leverage move here automatically.</div>}
@@ -231,11 +231,11 @@ export default function AssistantPanel({ token, onAuthError }) {
       </div>
 
       <form onSubmit={addEntry} className="shell u-mt-2">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Teach the assistant a useful fact" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Name this knowledge entry" />
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="Paste the fact, note, or reference the assistant should use"
+          placeholder="Paste the fact, context, or reference to ground future responses"
           rows={4}
           className="field-textarea"
         />
@@ -246,7 +246,7 @@ export default function AssistantPanel({ token, onAuthError }) {
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="State the problem, decision, or command"
+          placeholder="State a problem, frame a decision, or issue a command"
           className="u-field-grow"
         />
         <button className="primary" type="submit" disabled={loading}>Ask</button>
@@ -254,7 +254,7 @@ export default function AssistantPanel({ token, onAuthError }) {
 
       {answer ? (
         <article className="task-row u-mt-2">
-          <strong>AI executive brief</strong>
+          <strong>Executive summary</strong>
           <div>{answer}</div>
           <div className="controls">
             <button type="button" onClick={() => saveDecision("IN MOTION")}>Log to ledger</button>
