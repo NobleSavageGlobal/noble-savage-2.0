@@ -33,7 +33,7 @@ export default function ResizableLayout({
         // Fall back to defaults if parse fails
       }
     }
-  }, []);
+  }, [leftMinWidth, rightMinWidth]);
 
   function handleMouseDown(e, side) {
     e.preventDefault();
