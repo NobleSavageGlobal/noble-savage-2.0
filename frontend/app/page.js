@@ -58,6 +58,91 @@ const PERSONAS = [
   { id: "general", label: "General", mode: "general", description: "Open-ended assistant mode" },
 ];
 
+const QUICK_START_PERSONAS = [
+  { id: "credit", label: "Legal Expert" },
+  { id: "sovereignty", label: "Strategic Chief" },
+  { id: "tax", label: "Tax Strategist" },
+  { id: "accounting", label: "Finance Operator" },
+  { id: "general", label: "General Assistant" },
+];
+
+const QUICK_START_MODES = [
+  { id: "deep_search", label: "Deep Search", model: "sonnet" },
+  { id: "brief_build", label: "Brief Builder", model: "haiku" },
+  { id: "execution", label: "Execution", model: "sonnet" },
+  { id: "code_build", label: "Code Build", model: "opus" },
+];
+
+const QUICK_START_SOURCES = [
+  "Law Library",
+  "Gov Sites",
+  "Knowledge Vault",
+  "Internal Files",
+];
+
+const QUICK_START_TEMPLATES = [
+  {
+    id: "research",
+    icon: "📚",
+    label: "Research",
+    personaId: "sovereignty",
+    modeId: "deep_search",
+    tools: ["search", "files", "calc"],
+    sources: ["Knowledge Vault", "Gov Sites"],
+    prompt: "Research this topic deeply, cite sources, and end with the best executable recommendation.",
+  },
+  {
+    id: "business",
+    icon: "💼",
+    label: "Business",
+    personaId: "accounting",
+    modeId: "execution",
+    tools: ["search", "calc", "calendar"],
+    sources: ["Knowledge Vault", "Internal Files"],
+    prompt: "Frame this as a business decision memo with expected upside, downside, and immediate next moves.",
+  },
+  {
+    id: "legal",
+    icon: "⚖️",
+    label: "Legal",
+    personaId: "credit",
+    modeId: "deep_search",
+    tools: ["search", "files", "calc"],
+    sources: ["Law Library", "Gov Sites"],
+    prompt: "Analyze this from a legal strategy perspective with authority-backed steps and risk controls.",
+  },
+  {
+    id: "writing",
+    icon: "✍️",
+    label: "Writing",
+    personaId: "general",
+    modeId: "brief_build",
+    tools: ["files", "search"],
+    sources: ["Knowledge Vault", "Internal Files"],
+    prompt: "Draft this clearly in my voice, then provide a tighter final version and one alternate tone.",
+  },
+  {
+    id: "code",
+    icon: "💻",
+    label: "Code",
+    personaId: "sovereignty",
+    modeId: "code_build",
+    tools: ["code", "files", "search"],
+    sources: ["Internal Files", "Knowledge Vault"],
+    prompt: "Implement this directly with minimal churn, then provide the verification commands and outcomes.",
+  },
+  {
+    id: "strategy",
+    icon: "🧠",
+    label: "Strategy",
+    personaId: "sovereignty",
+    modeId: "execution",
+    tools: ["search", "calc", "calendar"],
+    sources: ["Knowledge Vault", "Gov Sites"],
+    prompt: "Choose the single highest-leverage move, sequence dependencies, and define the next 3 concrete actions.",
+  },
+];
+
 const DEFAULT_PROJECTS = [
   {
     id: "project-personal-os",
@@ -208,6 +293,25 @@ function ageBucket(ts) {
   return "older";
 }
 
+function formatRelativeTime(ts) {
+  if (!ts) return "just now";
+  const deltaMs = Math.max(0, Date.now() - ts);
+  const minutes = Math.floor(deltaMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function compactText(text = "", max = 180) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 1)}…`;
+}
+
 function hasArtifact(text = "") {
   return /```|^\s*\|.+\|\s*$/m.test(text);
 }
@@ -343,8 +447,18 @@ export default function Home() {
   const [threads, setThreads] = useState([createThread("Command thread", DEFAULT_PROJECTS[0].id)]);
   const [activeProjectId, setActiveProjectId] = useState(DEFAULT_PROJECTS[0].id);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [quickStartOpen, setQuickStartOpen] = useState(false);
   const [templates, setTemplates] = useState([]);
+  const [quickStartConfig, setQuickStartConfig] = useState(() => {
+    const legalPreset = QUICK_START_TEMPLATES.find((item) => item.id === "legal") || QUICK_START_TEMPLATES[0];
+    return {
+      templateId: legalPreset.id,
+      personaId: legalPreset.personaId,
+      modeId: legalPreset.modeId,
+      tools: [...legalPreset.tools],
+      sources: [...legalPreset.sources],
+    };
+  });
   const [activeThreadId, setActiveThreadId] = useState("");
   const [renamingThreadId, setRenamingThreadId] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
@@ -380,9 +494,12 @@ export default function Home() {
     older: false,
     archived: false,
   });
-  const [railTab, setRailTab] = useState("knowledge");
+  const [railTab, setRailTab] = useState("context");
   const [railPinned, setRailPinned] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
+  const [autoLearnEnabled, setAutoLearnEnabled] = useState(true);
+  const [selfHealEnabled, setSelfHealEnabled] = useState(true);
+  const [lastSelfHealAt, setLastSelfHealAt] = useState(0);
   const [onboardingSeen, setOnboardingSeen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
@@ -427,7 +544,6 @@ export default function Home() {
   useEffect(() => {
     function closeMenus() {
       setThreadMenu((current) => (current.open ? { ...current, open: false } : current));
-      setTemplateMenuOpen(false);
       setProjectMenuOpen(false);
     }
 
@@ -587,6 +703,7 @@ export default function Home() {
   useEffect(() => {
     function onEscape(event) {
       if (event.key === "Escape") {
+        setQuickStartOpen(false);
         setCommandPaletteOpen(false);
       }
     }
@@ -846,6 +963,26 @@ export default function Home() {
   const topMissingTerms = [...assistantQualityStats.missingMap.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
+  const estimatedTokens = Math.min(8000, (composerText.split(/\s+/).filter(Boolean).length * 2) + knowledgeStats.tokens);
+  const qualityGrade = assistantAverageAlignment >= 96
+    ? "A+"
+    : assistantAverageAlignment >= 92
+      ? "A"
+      : assistantAverageAlignment >= 85
+        ? "B"
+        : assistantAverageAlignment >= 75
+          ? "C"
+          : "Needs review";
+  const citedSourceCount = (lastAssistantMessage?.citations || []).length;
+  const personaConfidence = Math.max(78, Math.min(99, assistantAverageAlignment || 94));
+  const indexedFiles = workspaceFiles.filter((file) => file.status === "indexed");
+  const latestIndexedAt = indexedFiles
+    .map((file) => file.lastIndexed || file.createdAt)
+    .filter(Boolean)
+    .map((value) => (typeof value === "number" ? value : new Date(value).getTime()))
+    .sort((a, b) => b - a)[0] || 0;
+  const lastKnowledgeSyncLabel = latestIndexedAt ? formatRelativeTime(latestIndexedAt) : "not synced yet";
+  const activeToolLabels = TOOL_OPTIONS.filter((tool) => activeTools.includes(tool.id)).map((tool) => tool.label);
 
   function applyPromptStrengthener() {
     const nextPrompt = strengthenPromptDraft(composerText, inputReadiness);
@@ -869,6 +1006,21 @@ export default function Home() {
   }, [appendActivity, workspaceFiles]);
 
   useEffect(() => {
+    if (!selfHealEnabled) return;
+    if (!composerText.trim()) return;
+    if (estimatedTokens < 7200) return;
+    if (Date.now() - lastSelfHealAt < 45000) return;
+
+    const compacted = strengthenPromptDraft(composerText, inputReadiness);
+    if (compacted && compacted !== composerText) {
+      setComposerText(compacted);
+      setLastSelfHealAt(Date.now());
+      appendActivity("Self-heal", "Context pressure detected. Prompt auto-compressed.");
+      setSessionMessage("Context auto-compressed to preserve answer quality.");
+    }
+  }, [appendActivity, composerText, estimatedTokens, inputReadiness, lastSelfHealAt, selfHealEnabled]);
+
+  useEffect(() => {
     if (!activeThread) return;
     const toolActivity = (lastAssistantMessage?.runtime?.tools || []).length > 0;
     const shouldOpen = railPinned || artifactItems.length > 0 || sourceItems.length > 0 || files.length > 0 || workspaceFiles.length > 0 || toolActivity;
@@ -887,18 +1039,40 @@ export default function Home() {
     window.localStorage.setItem(`ns_draft_${threadId}`, draft || "");
   }, [updateThreadById]);
 
-  const handleNewThread = useCallback(() => {
+  const handleNewThread = useCallback((preset = null) => {
     if (activeThreadId) {
       persistUnsentThread(activeThreadId, composerText);
     }
-    const next = createThread("New thread", activeProjectId);
+    const nextTitle = preset?.title?.trim() || "New thread";
+    const next = createThread(nextTitle, activeProjectId);
     const savedDraft = window.localStorage.getItem(`ns_draft_${next.id}`) || "";
-    next.draft = savedDraft;
+    const seededDraft = preset?.prompt?.trim() || savedDraft;
+    next.draft = seededDraft;
+    const notesLines = [];
+    if (preset?.modeLabel) notesLines.push(`Mode: ${preset.modeLabel}`);
+    if (preset?.sources?.length) notesLines.push(`Sources: ${preset.sources.join(", ")}`);
+    if (preset?.tools?.length) notesLines.push(`Tools: ${preset.tools.join(", ")}`);
+    if (notesLines.length) {
+      next.notes = `Quick-start workspace\n${notesLines.join("\n")}`;
+    }
     setThreads((current) => [next, ...current]);
     setActiveThreadId(next.id);
-    setComposerText(savedDraft);
+    setComposerText(seededDraft);
+    if (preset?.personaId) setActivePersona(preset.personaId);
+    if (preset?.model) {
+      setComposerModel(preset.model);
+      setActiveModel(preset.model);
+    }
+    if (preset?.tools?.length) {
+      setActiveTools([...new Set(preset.tools)]);
+    }
+    if (preset?.sources?.length) {
+      setRailTab("knowledge");
+      setRailOpen(true);
+    }
     setTitleEditing(true);
     setDraftTitle(next.title);
+    setMainView("conversation");
   }, [activeProjectId, activeThreadId, composerText, persistUnsentThread]);
 
   useEffect(() => {
@@ -1407,6 +1581,58 @@ export default function Home() {
     older: searchedThreads.filter((thread) => ageBucket(thread.updatedAt) === "older"),
   };
 
+  function renderThreadCard(thread) {
+    const previewSource = [...(thread.messages || [])]
+      .reverse()
+      .find((message) => (message.content || "").trim())?.content
+      || thread.draft
+      || thread.notes
+      || "Start this thread when you're ready.";
+    const preview = compactText(previewSource, 160);
+    const messageCount = thread.messages?.length || 0;
+    const attachmentCount = [...new Set((thread.messages || []).flatMap((message) => message.attachments || []))].length;
+    const lastActive = formatRelativeTime(thread.updatedAt);
+
+    return (
+      <button
+        key={thread.id}
+        type="button"
+        className={`thread-card ${activeThreadId === thread.id ? "active" : ""}`}
+        onClick={() => selectThread(thread.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setThreadMenu({ open: true, threadId: thread.id, x: e.clientX, y: e.clientY });
+        }}
+      >
+        {renamingThreadId === thread.id ? (
+          <input
+            autoFocus
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onBlur={() => saveRenameThread(thread.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveRenameThread(thread.id);
+              if (e.key === "Escape") {
+                setRenamingThreadId("");
+                setRenameDraft("");
+              }
+            }}
+          />
+        ) : (
+          <>
+            <span className="thread-card__title">{thread.title}</span>
+            <span className="thread-card__preview">{preview}</span>
+            <span className="thread-card__meta">
+              <span>{messageCount} {messageCount === 1 ? "message" : "messages"}</span>
+              {attachmentCount > 0 ? <span>{attachmentCount} files</span> : null}
+              <span>{lastActive}</span>
+            </span>
+          </>
+        )}
+      </button>
+    );
+  }
+
   function selectThread(threadId) {
     if (activeThreadId && activeThreadId !== threadId) {
       persistUnsentThread(activeThreadId, composerText);
@@ -1516,8 +1742,50 @@ export default function Home() {
     setThreads((current) => [next, ...current]);
     setActiveThreadId(next.id);
     setComposerText(next.draft);
-    setTemplateMenuOpen(false);
     setMainView("conversation");
+    setQuickStartOpen(false);
+  }
+
+  function applyQuickStartTemplate(templateId) {
+    const template = QUICK_START_TEMPLATES.find((item) => item.id === templateId);
+    if (!template) return;
+    setQuickStartConfig((current) => ({
+      ...current,
+      templateId: template.id,
+      personaId: template.personaId,
+      modeId: template.modeId,
+      tools: [...template.tools],
+      sources: [...template.sources],
+    }));
+  }
+
+  function toggleQuickStartListValue(key, value) {
+    setQuickStartConfig((current) => {
+      const existing = current[key] || [];
+      const nextList = existing.includes(value)
+        ? existing.filter((item) => item !== value)
+        : [...existing, value];
+      return {
+        ...current,
+        [key]: nextList,
+      };
+    });
+  }
+
+  function launchQuickStartThread() {
+    const selectedTemplate = QUICK_START_TEMPLATES.find((item) => item.id === quickStartConfig.templateId) || QUICK_START_TEMPLATES[0];
+    const selectedMode = QUICK_START_MODES.find((item) => item.id === quickStartConfig.modeId) || QUICK_START_MODES[0];
+    const preset = {
+      title: `${selectedTemplate.label} thread`,
+      prompt: selectedTemplate.prompt,
+      personaId: quickStartConfig.personaId,
+      model: selectedMode.model,
+      tools: quickStartConfig.tools,
+      sources: quickStartConfig.sources,
+      modeLabel: selectedMode.label,
+    };
+    handleNewThread(preset);
+    setQuickStartOpen(false);
   }
 
   function applyStarterPrompt(prompt) {
@@ -1854,6 +2122,8 @@ export default function Home() {
     if (!commandPaletteQuery.trim()) return true;
     return action.label.toLowerCase().includes(commandPaletteQuery.toLowerCase().trim());
   });
+  const selectedQuickStartTemplate = QUICK_START_TEMPLATES.find((item) => item.id === quickStartConfig.templateId) || QUICK_START_TEMPLATES[0];
+  const selectedQuickStartMode = QUICK_START_MODES.find((item) => item.id === quickStartConfig.modeId) || QUICK_START_MODES[0];
 
   if (sessionChecking) {
     return (
@@ -1920,7 +2190,36 @@ export default function Home() {
   }
 
   return (
-    <main className={`app-shell ${leftCollapsed ? "sidebar-collapsed" : ""}`}>
+    <main className={`app-shell ${leftCollapsed ? "sidebar-collapsed" : ""} ${railOpen ? "rail-open" : "rail-closed"}`}>
+      <header className="app-top-bar">
+        <div className="topbar-brand">
+          <span className="workspace-avatar" style={{ background: activeProject?.color || "var(--accent-cta)" }}>
+            {activeProject?.icon || "NS"}
+          </span>
+          <div>
+            <strong>Noble Savage OS</strong>
+            <p className="muted">{workspace}</p>
+          </div>
+        </div>
+        <label className="topbar-search" htmlFor="workspace-search">
+          <input
+            id="workspace-search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search threads and content"
+          />
+        </label>
+        <div className="topbar-actions">
+          <select value={composerModel} onChange={(e) => setComposerModel(e.target.value)} aria-label="Global model selector">
+            <option value="sonnet">Mode: Sonnet</option>
+            <option value="haiku">Mode: Haiku</option>
+            <option value="opus">Mode: Opus</option>
+          </select>
+          <button type="button" className="ghost" onClick={() => setCommandPaletteOpen(true)}>Settings</button>
+        </div>
+      </header>
+
+      <div className="app-workspace">
       <aside className={`library ${leftCollapsed ? "is-collapsed" : ""}`}>
         <div className="library-top">
           <div className="workspace-switcher">
@@ -1974,31 +2273,12 @@ export default function Home() {
             <button
               type="button"
               className="new-thread"
-              onClick={() => setTemplateMenuOpen((value) => !value)}
+              onClick={() => setQuickStartOpen(true)}
             >
               <span>Start new thread</span>
               {!leftCollapsed ? <span className="shortcut">⌘N</span> : null}
             </button>
-            {templateMenuOpen && !leftCollapsed ? (
-              <div className="new-thread-menu">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleNewThread();
-                    setTemplateMenuOpen(false);
-                  }}
-                >
-                  Blank
-                </button>
-                <div className="new-thread-divider" />
-                {templates.length ? templates.slice(0, 12).map((template) => (
-                  <button key={template.id} type="button" onClick={() => createThreadFromTemplate(template)}>
-                    <span>{template.name}</span>
-                    <small>{template.projectName}</small>
-                  </button>
-                )) : <p className="muted">No templates yet. Save any thread to create one.</p>}
-              </div>
-            ) : null}
+            {!leftCollapsed ? <p className="muted">Launch a pre-configured workspace before you type.</p> : null}
           </div>
           {!leftCollapsed ? (
             <button
@@ -2036,35 +2316,7 @@ export default function Home() {
             <div className="library-section">
               <p className="section-label">Pinned</p>
               <div className="thread-list">
-                {pinned.length ? pinned.map((thread) => (
-                  <div
-                    key={thread.id}
-                    className={`thread-item ${activeThreadId === thread.id ? "active" : ""}`}
-                    onClick={() => selectThread(thread.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setThreadMenu({ open: true, threadId: thread.id, x: e.clientX, y: e.clientY });
-                    }}
-                  >
-                    {renamingThreadId === thread.id ? (
-                      <input
-                        autoFocus
-                        value={renameDraft}
-                        onChange={(e) => setRenameDraft(e.target.value)}
-                        onBlur={() => saveRenameThread(thread.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveRenameThread(thread.id);
-                          if (e.key === "Escape") {
-                            setRenamingThreadId("");
-                            setRenameDraft("");
-                          }
-                        }}
-                      />
-                    ) : (
-                      <span>{thread.title}</span>
-                    )}
-                  </div>
-                )) : <p className="muted">No pinned threads. Star a thread to keep it here.</p>}
+                {pinned.length ? pinned.map((thread) => renderThreadCard(thread)) : <p className="muted">No pinned threads. Pin critical conversations to keep them visible.</p>}
               </div>
             </div>
 
@@ -2084,35 +2336,7 @@ export default function Home() {
                 </button>
                 {!historyCollapsed[key] ? (
                   <div className="thread-list">
-                    {grouped[key].length ? grouped[key].map((thread) => (
-                      <div
-                        key={thread.id}
-                        className={`thread-item ${activeThreadId === thread.id ? "active" : ""}`}
-                        onClick={() => selectThread(thread.id)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setThreadMenu({ open: true, threadId: thread.id, x: e.clientX, y: e.clientY });
-                        }}
-                      >
-                        {renamingThreadId === thread.id ? (
-                          <input
-                            autoFocus
-                            value={renameDraft}
-                            onChange={(e) => setRenameDraft(e.target.value)}
-                            onBlur={() => saveRenameThread(thread.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveRenameThread(thread.id);
-                              if (e.key === "Escape") {
-                                setRenamingThreadId("");
-                                setRenameDraft("");
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span>{thread.title}</span>
-                        )}
-                      </div>
-                    )) : <p className="muted">No threads yet. Start a conversation to begin.</p>}
+                    {grouped[key].length ? grouped[key].map((thread) => renderThreadCard(thread)) : <p className="muted">No threads yet. Start a new conversation to build momentum.</p>}
                   </div>
                 ) : null}
               </div>
@@ -2387,10 +2611,11 @@ export default function Home() {
             ) : null}
 
             <div className="context-chip-row" aria-label="Active context">
+              <button type="button" className="chip" onClick={() => setRailTab("context")}>🧭 Context</button>
               <button type="button" className="chip" onClick={() => setRailTab("knowledge")}>📎 {knowledgeStats.docs} files</button>
               <button type="button" className="chip" onClick={() => setRailTab("tools")}>🛠 {activeTools.length} tools</button>
               <button type="button" className="chip" onClick={() => setRailTab("persona")}>🧠 {persona.label}</button>
-              <button type="button" className="chip" onClick={() => setRailTab("activity")}>tokens {Math.min(8000, (composerText.split(/\s+/).filter(Boolean).length * 2) + knowledgeStats.tokens)}/8000</button>
+              <button type="button" className="chip" onClick={() => setRailTab("activity")}>tokens {estimatedTokens}/8000</button>
             </div>
 
             <div className="composer-quick-actions" aria-label="Calendar quick actions">
@@ -2492,7 +2717,9 @@ export default function Home() {
         </footer>
       </section>
 
-      <aside className={`workspace-rail ${railOpen ? "open" : ""}`} aria-hidden={!railOpen}>
+      <aside className={`workspace-rail ${railOpen ? "open" : "collapsed"}`}>
+        {railOpen ? (
+          <>
         <div className="rail-head">
           <strong>Workspace</strong>
           <div className="controls">
@@ -2502,6 +2729,7 @@ export default function Home() {
         </div>
         <div className="rail-tabs">
           {[
+            ["context", "Context"],
             ["knowledge", "Knowledge"],
             ["tools", "Tools"],
             ["persona", "Persona"],
@@ -2523,12 +2751,79 @@ export default function Home() {
           ))}
         </div>
         <div className="rail-content">
+          {railTab === "context" ? (
+            <section className="context-drawer" aria-label="Dynamic context drawer">
+              <details className="context-drawer-section" open>
+                <summary>
+                  <span>📁 Knowledge</span>
+                  <button type="button" className="ghost" onClick={(e) => { e.preventDefault(); openUploadPicker("dashboard"); }}>+ Add</button>
+                </summary>
+                <p className="muted">{knowledgeStats.ready} indexed files · {knowledgeStats.chunks} chunks</p>
+                <p className="muted">Last sync: {lastKnowledgeSyncLabel}</p>
+              </details>
+
+              <details className="context-drawer-section" open>
+                <summary>
+                  <span>🔧 Active tools</span>
+                  <button type="button" className="ghost" onClick={(e) => { e.preventDefault(); setRailTab("tools"); }}>Edit</button>
+                </summary>
+                {activeToolLabels.length ? activeToolLabels.map((toolLabel) => (
+                  <p key={`tool-${toolLabel}`} className="muted">✓ {toolLabel}</p>
+                )) : <p className="muted">No tools selected. Enable tools to expand capability.</p>}
+              </details>
+
+              <details className="context-drawer-section" open>
+                <summary>
+                  <span>🎭 Persona</span>
+                </summary>
+                <p className="muted">{persona.label}</p>
+                <p className="muted">Confidence: {personaConfidence}%</p>
+              </details>
+
+              <details className="context-drawer-section" open>
+                <summary>
+                  <span>📊 Quality score</span>
+                </summary>
+                <p className="muted">Grade: {qualityGrade}</p>
+                <p className="muted">Clarity: {assistantAverageAlignment || 94}</p>
+                <p className="muted">Sources cited: {citedSourceCount}</p>
+                <p className="muted">Citations {citedSourceCount > 0 ? "available" : "will appear after grounded responses"}</p>
+              </details>
+
+              <div className="context-drawer-controls">
+                <label className="check-line">
+                  <input
+                    type="checkbox"
+                    checked={autoLearnEnabled}
+                    onChange={(e) => {
+                      setAutoLearnEnabled(e.target.checked);
+                      appendActivity("Auto-learn", e.target.checked ? "Enabled" : "Paused");
+                    }}
+                  />
+                  <span>↻ Auto-learn: {autoLearnEnabled ? "ON" : "OFF"}</span>
+                </label>
+                <label className="check-line">
+                  <input
+                    type="checkbox"
+                    checked={selfHealEnabled}
+                    onChange={(e) => {
+                      setSelfHealEnabled(e.target.checked);
+                      appendActivity("Self-heal", e.target.checked ? "Enabled" : "Paused");
+                    }}
+                  />
+                  <span>🛠 Self-heal: {selfHealEnabled ? "ON" : "OFF"}</span>
+                </label>
+                <p className="muted">Token pressure: {estimatedTokens}/8000</p>
+              </div>
+            </section>
+          ) : null}
+
           {railTab === "knowledge" ? (
             <section className="rail-section">
               <div className="controls">
-                <button type="button" onClick={() => openUploadPicker("dashboard")}>Upload</button>
-                <button type="button" className="ghost" onClick={() => setMainView("library")}>Open library</button>
-                <button type="button" className="ghost" onClick={bulkReindexKnowledge}>Reindex all</button>
+                <button type="button" onClick={() => openUploadPicker("dashboard")}>Add files</button>
+                <button type="button" className="ghost" onClick={() => setMainView("library")}>View library</button>
+                <button type="button" className="ghost" onClick={bulkReindexKnowledge}>Reindex selected</button>
                 <button type="button" className="ghost" onClick={clearInactiveKnowledge}>Clear inactive</button>
                 <button type="button" className="ghost" onClick={exportKnowledgeSummary}>Export</button>
               </div>
@@ -2948,21 +3243,131 @@ export default function Home() {
             </section>
           ) : null}
         </div>
+          </>
+        ) : (
+          <div className="rail-collapsed-state">
+            <button type="button" className="workspace-trigger" onClick={() => setRailOpen(true)}>
+              Open context panel
+            </button>
+          </div>
+        )}
       </aside>
-
-      {!railOpen ? (
-        <button type="button" className="workspace-trigger" onClick={() => setRailOpen(true)}>
-          Open workspace rail
-        </button>
-      ) : null}
+      </div>
 
       <div className="system-status-footer" role="status" aria-live="polite">
         <span className={`health-dot ${health.status === "up" && !health.degraded ? "up" : health.status === "up" ? "degraded" : "down"}`} />
         <span>{health.status === "up" ? (health.degraded ? "Degraded" : "Connected") : "Disconnected"}</span>
         <span>Model: {composerModel}</span>
-        <span>{Math.min(8000, (composerText.split(/\s+/).filter(Boolean).length * 2) + knowledgeStats.tokens)} / 8K tokens</span>
-        <span>KB: {knowledgeStats.docs} docs ({knowledgeStats.chunks} chunks)</span>
+        <span>{estimatedTokens} / 8K tokens</span>
+        <span>Knowledge: {knowledgeStats.docs} docs ({knowledgeStats.chunks} chunks)</span>
       </div>
+
+      {quickStartOpen ? (
+        <div className="lightbox" onClick={() => setQuickStartOpen(false)}>
+          <section className="lightbox-content quick-start-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="quick-start-head">
+              <div>
+                <h2>What do you want to do?</h2>
+                <p className="notice">Start with a tuned workspace so your first prompt is already scoped.</p>
+              </div>
+              <button type="button" className="ghost" onClick={() => setQuickStartOpen(false)}>Close</button>
+            </header>
+
+            <div className="quick-start-template-grid" role="list" aria-label="Quick-start templates">
+              {QUICK_START_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={`quick-start-template ${quickStartConfig.templateId === template.id ? "active" : ""}`}
+                  onClick={() => applyQuickStartTemplate(template.id)}
+                >
+                  <span>{template.icon}</span>
+                  <span>{template.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="quick-start-controls">
+              <label>
+                <span>Persona</span>
+                <select
+                  value={quickStartConfig.personaId}
+                  onChange={(e) => setQuickStartConfig((current) => ({ ...current, personaId: e.target.value }))}
+                >
+                  {QUICK_START_PERSONAS.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Mode</span>
+                <select
+                  value={quickStartConfig.modeId}
+                  onChange={(e) => setQuickStartConfig((current) => ({ ...current, modeId: e.target.value }))}
+                >
+                  {QUICK_START_MODES.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="quick-start-chip-groups">
+              <div>
+                <span className="section-label">Tools</span>
+                <div className="chip-row">
+                  {TOOL_OPTIONS.map((tool) => (
+                    <button
+                      key={`quick-tool-${tool.id}`}
+                      type="button"
+                      className={`chip ${quickStartConfig.tools.includes(tool.id) ? "primary" : "ghost"}`}
+                      onClick={() => toggleQuickStartListValue("tools", tool.id)}
+                    >
+                      {tool.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className="section-label">Sources</span>
+                <div className="chip-row">
+                  {QUICK_START_SOURCES.map((source) => (
+                    <button
+                      key={`quick-source-${source}`}
+                      type="button"
+                      className={`chip ${quickStartConfig.sources.includes(source) ? "primary" : "ghost"}`}
+                      onClick={() => toggleQuickStartListValue("sources", source)}
+                    >
+                      {source}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {templates.length ? (
+              <div className="quick-start-saved">
+                <span className="section-label">Saved templates</span>
+                <div className="chip-row">
+                  {templates.slice(0, 8).map((template) => (
+                    <button key={template.id} type="button" className="chip ghost" onClick={() => createThreadFromTemplate(template)}>
+                      {template.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <footer className="quick-start-footer">
+              <p className="muted">
+                Template: {selectedQuickStartTemplate.label} · Mode: {selectedQuickStartMode.label} · Tools: {quickStartConfig.tools.length}
+              </p>
+              <button type="button" className="primary" onClick={launchQuickStartThread}>Start Chat</button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {commandPaletteOpen ? (
         <div className="lightbox" onClick={() => setCommandPaletteOpen(false)}>
