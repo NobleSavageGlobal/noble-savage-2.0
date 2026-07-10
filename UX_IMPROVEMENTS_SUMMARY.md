@@ -262,6 +262,26 @@ frontend/
 
 ---
 
+## 🛠 Scroll Lock + Formatting Stabilization (Operator Wording + Prompts)
+
+### Refined Request Wording
+
+Use this wording when assigning the fix:
+
+"The interface intermittently locks scroll and blocks normal navigation. Remove root-level scroll traps, replace fragile viewport sizing with resilient dvh/min-height patterns, and standardize pane-level scrolling so interactions remain smooth on desktop, tablet, and mobile. Eliminate breakpoint formatting drift by normalizing spacing, container sizing, and overflow behavior across the full layout."
+
+### 4 High-Value Prompts To Drive the Fix
+
+1. "Run a full layout scroll-trap audit. Enumerate every use of 100vh, fixed-height shells, and overflow:hidden on root containers, classify risk by severity, and propose safe replacements using dvh plus min-height with pane-level scrolling."
+
+2. "Trace all full-screen overlays and drag/drop states that can block interaction. Add guardrails so overlays only activate for valid file drags and always self-clear on drop, dragend, blur, visibility changes, and failed drag exits."
+
+3. "Standardize scrolling across chat, sidebar, and right rail. Apply consistent overflow rules, touch momentum scrolling, and overscroll containment so users never hit dead-end scroll regions on mobile or desktop."
+
+4. "Run a responsive consistency pass for desktop, tablet, and mobile. Detect layout shifts, clipped content, and spacing mismatches, then patch CSS so typography, paddings, and pane dimensions remain stable at all breakpoints."
+
+---
+
 **Version**: 2.6.0  
 **Status**: ✅ Ready for Production  
 **Last Updated**: 2026-07-09  

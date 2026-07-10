@@ -26,7 +26,7 @@ def main() -> None:
 
     run_id = uuid.uuid4().hex[:8]
     email = f"compendium.smoke.{run_id}@noblesavage.local"
-    password = "compendium-pass-123"
+    password = "Compendium-pass-123!"
 
     with TestClient(app) as client:
         reg = client.post(

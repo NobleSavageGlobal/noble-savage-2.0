@@ -2,20 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_VENV_PYTHON="${ROOT_DIR}/backend/.venv/bin/python"
+
+if [[ ! -x "${BACKEND_VENV_PYTHON}" ]]; then
+	echo "Error: backend virtualenv python not found at ${BACKEND_VENV_PYTHON}"
+	exit 1
+fi
 
 echo "== Full Diagnostic: start =="
 echo "Root: ${ROOT_DIR}"
 
 echo "\n[1/7] Backend e2e and smoke tests"
 pushd "${ROOT_DIR}/backend" >/dev/null
-source .venv/bin/activate
-python scripts/e2e_system_flow.py
-python scripts/smoke_auth_flow.py
+"${BACKEND_VENV_PYTHON}" scripts/e2e_system_flow.py
+"${BACKEND_VENV_PYTHON}" scripts/smoke_auth_flow.py
+"${BACKEND_VENV_PYTHON}" scripts/smoke_compendium_flow.py
 popd >/dev/null
 
 echo "\n[2/7] Legacy unit tests"
 pushd "${ROOT_DIR}" >/dev/null
-python -m unittest discover -s tests -p "test_*.py"
+"${BACKEND_VENV_PYTHON}" -m unittest discover -s tests -p "test_*.py"
+"${BACKEND_VENV_PYTHON}" -m pytest -q tests
 popd >/dev/null
 
 echo "\n[3/7] Frontend production build"
@@ -41,8 +48,7 @@ if [[ "${RAILWAY_AVAILABLE}" -eq 1 ]]; then
 
 	echo "\n[6/7] Production upload diagnostic"
 	pushd "${ROOT_DIR}/backend" >/dev/null
-	source .venv/bin/activate
-	python - <<'PY'
+	"${BACKEND_VENV_PYTHON}" - <<'PY'
 import uuid
 import secrets
 from io import BytesIO

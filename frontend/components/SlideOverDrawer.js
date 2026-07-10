@@ -15,6 +15,11 @@ export default function SlideOverDrawer({
   position = "right", // "right" or "left"
   width = "320px",
 }) {
+  const viewportHeight =
+    typeof window !== "undefined" && window.CSS?.supports?.("height", "100dvh")
+      ? "100dvh"
+      : "100vh";
+
   const handleKeyDown = useCallback(
     (e) => {
       if (e.key === "Escape" && isOpen) {
@@ -54,7 +59,8 @@ export default function SlideOverDrawer({
           top: 0,
           [position]: 0,
           width: width,
-          height: "100vh",
+          height: viewportHeight,
+          maxHeight: viewportHeight,
           backgroundColor: "var(--panel)",
           borderLeft: position === "right" ? "1px solid var(--line)" : "none",
           borderRight: position === "left" ? "1px solid var(--line)" : "none",
@@ -105,7 +111,17 @@ export default function SlideOverDrawer({
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "var(--space-4)" }}>{children}</div>
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
+            overscrollBehavior: "contain",
+            padding: "var(--space-4)",
+          }}
+        >
+          {children}
+        </div>
       </div>
 
       <style>{`

@@ -71,6 +71,8 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
+  height: 100%;
+  overflow-x: hidden;
 }
 
 body {
@@ -78,6 +80,7 @@ body {
   font-family: var(--font-sans), sans-serif;
   font-size: var(--body-size);
   line-height: var(--body-line);
+  overflow-y: auto;
   background:
     radial-gradient(circle at 20% 0%, color-mix(in oklab, var(--surface-2) 72%, transparent) 0, transparent 40%),
     radial-gradient(circle at 100% 20%, color-mix(in oklab, var(--panel) 72%, transparent) 0, transparent 35%),
@@ -254,11 +257,19 @@ button.primary {
   max-width: 100%;
   margin: 0;
   padding: 0;
-  height: 100vh;
+  min-height: 100dvh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--paper);
-  overflow: hidden;
+  overflow: clip;
+}
+
+@supports not (height: 100dvh) {
+  .app-shell {
+    min-height: 100vh;
+    height: 100vh;
+  }
 }
 
 .app-top-bar {
@@ -521,6 +532,8 @@ button.primary {
 .library-scroll {
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding-right: 2px;
   display: grid;
   gap: 10px;
@@ -717,6 +730,8 @@ button.primary {
 .messages-frame {
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: var(--space-8) var(--space-7) 140px;
 }
 
@@ -2194,6 +2209,8 @@ button.primary {
 
 .rail-content {
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 12px;
   display: grid;
   gap: 10px;
@@ -2592,7 +2609,9 @@ html[data-density="compact"] .messages-frame {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .resizable-divider {

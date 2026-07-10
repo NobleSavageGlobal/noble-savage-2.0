@@ -83,7 +83,10 @@ export default function ResizableLayout({
 
   const showRight = !rightCollapsed && rightPane;
   const rightWidthPx = showRight ? rightWidth : 0;
-  const centerWidth = `calc(100% - ${leftWidth}px - ${rightWidthPx}px)`;
+  const viewportHeight =
+    typeof window !== "undefined" && window.CSS?.supports?.("height", "100dvh")
+      ? "100dvh"
+      : "100vh";
 
   return (
     <div
@@ -93,7 +96,8 @@ export default function ResizableLayout({
         display: "grid",
         gridTemplateColumns: `${leftWidth}px minmax(0, 1fr) ${rightWidthPx}px`,
         gap: "0",
-        height: "100vh",
+        height: viewportHeight,
+        minHeight: viewportHeight,
         transition: dragging ? "none" : "grid-template-columns 200ms ease",
       }}
     >

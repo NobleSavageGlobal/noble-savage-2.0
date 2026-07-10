@@ -14,6 +14,11 @@ export default function CollapsibleSidebar({
   onToggleLibrary,
   activeProject,
 }) {
+  const viewportHeight =
+    typeof window !== "undefined" && window.CSS?.supports?.("height", "100dvh")
+      ? "100dvh"
+      : "100vh";
+
   const [expandedSections, setExpandedSections] = useState({
     projects: true,
     actions: true,
@@ -42,8 +47,10 @@ export default function CollapsibleSidebar({
         borderRight: "1px solid var(--line)",
         display: "flex",
         flexDirection: "column",
-        maxHeight: "100vh",
+        maxHeight: viewportHeight,
         overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
+        overscrollBehavior: "contain",
         padding: "var(--space-4)",
         gap: "var(--space-4)",
       }}

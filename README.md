@@ -67,16 +67,28 @@ python scripts/bootstrap_knowledge.py
 ```bash
 cd frontend
 npm install
-## One-Command Release
-
-- `./scripts/release_one_shot.sh`
-- Runs full diagnostics, verifies main sync, deploys backend and frontend to Railway, then checks live endpoints.
 npm run dev
 ```
 
 Open `http://localhost:3000`.
 
 The frontend expects the backend at `http://localhost:8000` by default.
+
+## One-Command Release
+
+- `./scripts/release_one_shot.sh`
+- Runs backend smoke flows, unit tests, pytest, frontend build, then deploys backend and frontend to Railway and checks live endpoints.
+
+## Full Local Diagnostic
+
+```bash
+./scripts/full_diagnostic.sh
+```
+
+Notes:
+
+- Uses `backend/.venv/bin/python` explicitly so diagnostics do not depend on the container's global Python.
+- Runs backend e2e, auth smoke, compendium smoke, `unittest`, `pytest`, and frontend production build.
 
 ## Codespaces Quick Test Link
 

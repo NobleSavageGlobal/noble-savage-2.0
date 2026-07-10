@@ -299,17 +299,26 @@ export default function useWorkspaceAttachments({
   queueFilesRef.current = queueFiles;
 
   useEffect(() => {
+    function hasDraggedFiles(event) {
+      const types = event?.dataTransfer?.types;
+      if (!types) return false;
+      return Array.from(types).includes("Files");
+    }
+
     function onDragEnter(event) {
+      if (!hasDraggedFiles(event)) return;
       event.preventDefault();
       dragCounterRef.current += 1;
       setGlobalDropVisible(true);
     }
 
     function onDragOver(event) {
+      if (!hasDraggedFiles(event)) return;
       event.preventDefault();
     }
 
     function onDragLeave(event) {
+      if (!hasDraggedFiles(event)) return;
       event.preventDefault();
       dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
       if (dragCounterRef.current === 0) {
@@ -318,6 +327,10 @@ export default function useWorkspaceAttachments({
     }
 
     function onDrop(event) {
+      if (!hasDraggedFiles(event)) {
+        clearDropOverlay();
+        return;
+      }
       event.preventDefault();
       dragCounterRef.current = 0;
       setGlobalDropVisible(false);
@@ -326,6 +339,11 @@ export default function useWorkspaceAttachments({
         const context = mainView === "library" ? "dashboard" : railTab === "artifact" ? "artifact" : "composer";
         queueFilesRef.current?.(dropped, context);
       }
+    }
+
+    function clearDropOverlay() {
+      dragCounterRef.current = 0;
+      setGlobalDropVisible(false);
     }
 
     function onWindowPaste(event) {
@@ -348,6 +366,9 @@ export default function useWorkspaceAttachments({
     window.addEventListener("dragover", onDragOver);
     window.addEventListener("dragleave", onDragLeave);
     window.addEventListener("drop", onDrop);
+    window.addEventListener("dragend", clearDropOverlay);
+    window.addEventListener("blur", clearDropOverlay);
+    document.addEventListener("visibilitychange", clearDropOverlay);
     window.addEventListener("paste", onWindowPaste);
 
     return () => {
@@ -355,6 +376,9 @@ export default function useWorkspaceAttachments({
       window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragend", clearDropOverlay);
+      window.removeEventListener("blur", clearDropOverlay);
+      document.removeEventListener("visibilitychange", clearDropOverlay);
       window.removeEventListener("paste", onWindowPaste);
     };
   }, [mainView, railTab]);

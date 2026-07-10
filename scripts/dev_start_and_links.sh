@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+BACKEND_UVICORN="${ROOT_DIR}/backend/.venv/bin/uvicorn"
 
 is_listening() {
   local port="$1"
@@ -19,7 +20,11 @@ start_backend() {
   echo "Starting backend on ${BACKEND_PORT}"
   (
     cd "${ROOT_DIR}/backend"
-    .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_PORT}" \
+    if [[ ! -x "${BACKEND_UVICORN}" ]]; then
+      echo "Missing backend uvicorn at ${BACKEND_UVICORN}" >&2
+      exit 1
+    fi
+    "${BACKEND_UVICORN}" app.main:app --host 127.0.0.1 --port "${BACKEND_PORT}" \
       >/tmp/ns_backend_live.log 2>&1 &
   )
 }
